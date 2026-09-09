@@ -9,6 +9,9 @@ import '../styles/global.css';
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>tic — NOC follow-up timers</title>
     <meta name="description" content="tic — quiet local-only timers + tasks for NOC follow-ups." />
+    <script is:inline>
+      try { var t = localStorage.getItem('tic.theme'); if (t !== 'dark' && t !== 'light') { t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } document.documentElement.dataset.theme = t; } catch (e) {}
+    </script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23faf4e8' stroke='%231734d8' stroke-width='6' stroke-dasharray='10 7'/><text x='50' y='70' font-size='56' text-anchor='middle' fill='%231734d8' font-family='Georgia' font-style='italic'>t</text></svg>" />
   </head>
   <body>
@@ -21,6 +24,7 @@ import '../styles/global.css';
         </div>
         <div class="flex items-center gap-3">
           <span id="count" class="text-sm text-ink/70 italic">—</span>
+          <button id="themeToggle" type="button" aria-pressed="false" aria-label="Switch to dark mode" title="Switch to dark mode" class="cursor-pointer border-2 border-dashed border-ink bg-transparent px-3 py-2.5 font-serif text-[15px] text-ink italic hover:bg-ink hover:text-cream active:translate-y-px">☾ dark</button>
           <button id="fab" type="button" class="cursor-pointer border-2 border-dashed border-ink bg-transparent px-[18px] py-2.5 font-serif text-[15px] text-ink italic hover:bg-ink hover:text-cream active:translate-y-px">+ new timer</button>
         </div>
       </header>
@@ -170,10 +174,12 @@ import '../styles/global.css';
     </div>
 
     <script>
+      import { initTheme } from '../scripts/theme.ts';
       import { init } from '../scripts/app.ts';
       import { initBoxes } from '../scripts/boxes.ts';
       import { initFluid } from '../scripts/fluid.ts';
       import { initFx } from '../scripts/fx.ts';
+      initTheme();
       init();
       initBoxes();
       initFluid();
