@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+/* tic motion tokens — springs for interactive motion, expo-out for entrances.
+   Exits run a tier faster so the UI never drags. */
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: linear(0, 0.006, 0.025, 0.101, 0.224, 0.394, 0.591, 0.781, 0.925, 1.019, 1.063, 1.07, 1.057, 1.035, 1.014, 0.999, 0.991, 0.988, 0.991, 0.995, 1);
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --dur-slow: 380ms;
+}
+
+/* tic design tokens — cream paper, blue ink, serif, boxy, dashes. */
+@theme {
+  --color-cream: #faf4e8;
+  --color-ink: #1734d8;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+
+  --animate-blink: blink 1.4s ease infinite;
+  --animate-pop: pop 0.35s ease;
+  --animate-rise: rise 0.5s var(--ease-out) both;
+
+  @keyframes blink {
+    50% { opacity: 0.25; }
+  }
+  @keyframes pop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.03); }
+    100% { transform: scale(1); }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer base {
+  * { border-radius: 0 !important; }
+  html, body { height: 100%; }
+  body {
+    @apply bg-cream text-ink font-serif antialiased;
+  }
+}
+
+/* Native colour-picker inputs can't be styled with utilities
+   (shadow-DOM swatches), so they live here. */
+#accentWheel,
+#baccentWheel {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  opacity: 0.85;
+}
+#accentWheel::-webkit-color-swatch-wrapper,
+#baccentWheel::-webkit-color-swatch-wrapper { padding: 0; }
+#accentWheel::-webkit-color-swatch,
+#baccentWheel::-webkit-color-swatch { border: 2px dashed #1734d8; }
+#accentWheel::-moz-color-swatch,
+#baccentWheel::-moz-color-swatch { border: 2px dashed #1734d8; }
+#accentWheel[data-sel="true"],
+#baccentWheel[data-sel="true"] {
+  outline: 2px solid #1734d8;
+  outline-offset: 3px;
+  opacity: 1;
+}
+
+/* Reusable patterns. Utilities stay inline for one-offs; anything rendered
+   more than once (especially inside JS templates) lives here so the
+   bundle doesn't pay for the same class string over and over. */
+@layer components {
+  .t-chip { @apply cursor-pointer border-2 border-dashed border-ink/45 bg-transparent px-3 py-1.5 font-serif text-sm italic text-ink/60 hover:border-ink hover:text-ink data-[active=true]:border-solid data-[active=true]:bg-ink data-[active=true]:text-cream; }
+  .t-tag { @apply border-2 border-dashed border-ink/45 px-2.5 py-[3px] text-[13px] italic; }
+  .t-iconbtn { @apply grid h-[30px] min-w-[30px] cursor-pointer place-items-center border-2 border-dashed border-transparent bg-transparent px-1 font-serif text-[15px] italic text-ink/40 hover:border-ink/45 hover:text-ink; }
+  .t-card { @apply border-2 border-dashed border-ink/45 bg-transparent p-[18px] [content-visibility:auto] [contain-intrinsic-size:auto_320px]; }
+  .t-name { @apply m-0 overflow-hidden text-ellipsis whitespace-nowrap text-[21px] font-normal italic; }
+  .t-meta { @apply mt-1 flex items-center gap-2 text-[13px] text-ink/70; }
+  .t-dot { @apply h-2 w-2 shrink-0 bg-(--accent) group-data-[status=running]:animate-blink; }
+  .t-time { @apply text-[21px] tracking-tight tabular-nums; }
+  .t-sub { @apply mt-[3px] text-[11px] italic text-ink/70; }
+  .t-play { @apply flex-1 cursor-pointer border-2 border-dashed border-ink bg-(--accent) p-[11px] font-serif text-base italic text-cream hover:bg-transparent hover:text-ink active:translate-y-px data-[paused=true]:bg-transparent data-[paused=true]:text-ink; }
+  .t-reset { @apply w-[46px] cursor-pointer border-2 border-dashed border-ink/45 bg-transparent font-serif text-[17px] text-ink hover:border-ink; }
+  .t-empty { @apply border-2 border-dashed border-ink/45 px-5 py-14 text-center; }
+  .t-emptyh { @apply m-0 mb-1.5 text-[22px] font-normal italic; }
+  .t-emptyp { @apply m-0 italic text-ink/70; }
+  .t-overlay { @apply fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-[18px] opacity-0 backdrop-blur-lg transition-opacity duration-300 pointer-events-none data-[open=true]:pointer-events-auto data-[open=true]:opacity-100; }
+  .t-sheetbox { @apply max-h-[92vh] w-full max-w-[480px] scale-95 overflow-auto border-2 border-dashed border-ink bg-cream p-[26px] text-ink opacity-0 transition-all duration-500 group-data-[open=true]:scale-100 group-data-[open=true]:opacity-100; }
+  .t-sheeth { @apply m-0 mb-1 text-[26px] font-normal italic; }
+  .t-hint { @apply m-0 mb-5 text-sm italic opacity-70; }
+  .t-field { @apply mb-[18px]; }
+  .t-flabel { @apply mb-2 block text-[13px] italic opacity-75; }
+  .t-textin { @apply w-full border-0 border-b-2 border-dashed border-ink bg-transparent px-3 py-[11px] font-serif text-base text-ink outline-none focus:border-solid; }
+  .t-durlab { @apply mt-1.5 block text-xs italic opacity-70; }
+  .t-preset { @apply cursor-pointer border-0 bg-transparent px-1 py-1.5 font-serif text-sm italic text-ink opacity-65 hover:opacity-100 hover:underline; }
+  .t-swatch { @apply h-[34px] w-[34px] cursor-pointer border-0 opacity-60 data-[sel=true]:opacity-100 data-[sel=true]:outline-2 data-[sel=true]:outline-solid data-[sel=true]:outline-ink data-[sel=true]:outline-offset-[3px]; }
+  .t-rsbtn { @apply cursor-pointer border-0 bg-transparent px-2 py-2.5 font-serif text-sm italic text-ink opacity-65 hover:opacity-100 data-[sel=true]:bg-ink data-[sel=true]:text-cream data-[sel=true]:opacity-100; }
+  .t-ringopt { @apply flex w-full cursor-pointer items-center justify-between gap-2.5 border-0 bg-transparent px-3 py-2.5 text-left hover:bg-ink/5 data-[sel=true]:bg-ink/10; }
+  .t-roname { @apply block text-[15px] font-normal italic; }
+  .t-rodesc { @apply text-xs italic opacity-70; }
+  .t-prevbtn { @apply shrink-0 cursor-pointer border-0 bg-transparent font-serif text-sm italic text-ink opacity-65 hover:opacity-100 hover:underline; }
+  .t-ghost { @apply flex-[0.5] cursor-pointer border-0 bg-transparent p-3 font-serif text-base italic text-ink opacity-70 hover:opacity-100 hover:underline; }
+  .t-primary { @apply flex-1 cursor-pointer border-0 bg-ink p-3 font-serif text-base italic text-cream hover:bg-transparent hover:text-ink hover:outline-2 hover:outline-dashed hover:outline-ink; }
+  .t-tab { @apply flex-1 cursor-pointer border-0 bg-transparent p-2.5 font-serif text-[17px] italic text-ink/60 hover:text-ink data-[active=true]:bg-ink data-[active=true]:text-cream; }
+  .t-boxring { @apply grid h-11 w-11 shrink-0 cursor-pointer place-items-center border-2 border-dashed border-ink bg-transparent p-0 font-serif text-xl italic text-transparent hover:bg-ink/5 hover:text-ink/60 group-data-[done=true]:border-solid group-data-[done=true]:bg-ink group-data-[done=true]:text-cream; }
+  .t-boxtitle { @apply m-0 overflow-hidden text-ellipsis whitespace-nowrap text-[21px] font-normal italic group-data-[done=true]:opacity-55 group-data-[done=true]:line-through; }
+  .t-boxdesc { @apply text-[13.5px] italic text-ink/70 whitespace-pre-wrap break-words group-data-[done=true]:opacity-50; }
+  .t-ticket { @apply ml-2 inline-block border border-dashed border-ink/45 px-1.5 py-px align-middle font-serif text-[12px] not-italic opacity-80; }
+  .t-prio { @apply mr-1.5 inline-grid h-[22px] w-[22px] place-items-center bg-orange-700 align-middle font-serif text-[14px] font-bold not-italic text-cream; }
+  .t-linked { @apply opacity-70; }
+  .t-need { @apply font-bold text-orange-700; }
+  .t-card[data-need="true"] { @apply border-solid border-orange-700 bg-orange-700/5; }
+  .t-card[data-status="done"] { @apply opacity-90; }
+  .t-noc-ticketwrap { @apply mb-2.5; }
+  .t-noc-ticket { @apply w-full border-0 border-b-2 border-dashed border-ink bg-transparent px-2 py-2 font-serif text-[15px] text-ink outline-none focus:border-solid; }
+  .t-noc-btns { @apply flex flex-wrap gap-2; }
+  .t-nocbtn { @apply cursor-pointer border-2 border-dashed border-ink/45 bg-transparent px-3 py-2 font-serif text-[14px] italic text-ink hover:border-ink hover:bg-ink hover:text-cream active:translate-y-px data-[urgent=true]:border-solid data-[urgent=true]:border-orange-700; }
+}
+
+.dragging { opacity: 0.35; }
+
+/* Fluid canvas — fixed GPU layer, content floats above. */
+#fluid {
+  pointer-events: none;
+  background: var(--color-cream);
+}
+
+/* Card entrances — staggered rise, transform+opacity only (60fps). */
+#grid > *, #boxGrid > * {
+  animation: rise 0.5s var(--ease-out) both;
+}
+#grid > *:nth-child(2), #boxGrid > *:nth-child(2) { animation-delay: 40ms; }
+#grid > *:nth-child(3), #boxGrid > *:nth-child(3) { animation-delay: 80ms; }
+#grid > *:nth-child(4), #boxGrid > *:nth-child(4) { animation-delay: 120ms; }
+#grid > *:nth-child(5), #boxGrid > *:nth-child(5) { animation-delay: 160ms; }
+#grid > *:nth-child(6), #boxGrid > *:nth-child(6) { animation-delay: 200ms; }
+#grid > *:nth-child(n+7), #boxGrid > *:nth-child(n+7) { animation-delay: 240ms; }
+
+/* Cards lift on hover, settle with a spring. Running timers hold a soft glow. */
+.t-card {
+  transition: transform var(--dur-base) var(--ease-out),
+    border-color var(--dur-fast) ease-out,
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.t-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -12px rgb(23 52 216 / 0.35);
+}
+.t-card[data-status="running"] {
+  border-style: solid;
+  box-shadow: 0 8px 28px -12px rgb(23 52 216 / 0.45);
+}
+
+/* Tabs crossfade, buttons press with a spring. */
+.t-tab { transition: background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out; }
+.t-nocbtn, .t-play, .t-reset, .t-chip {
+  transition: transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) ease-out,
+    color var(--dur-fast) ease-out,
+    border-color var(--dur-fast) ease-out,
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.t-nocbtn:active, .t-play:active { transform: scale(0.97); }
+
+/* Sheets open slow, close fast — spring settle, no drag on exit. */
+.t-sheetbox { transition-timing-function: var(--ease-spring); }
+.t-overlay { transition-duration: 200ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  #fluid { opacity: 0.35; }
+}

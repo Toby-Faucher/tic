@@ -1,0 +1,181 @@
+---
+import '../styles/global.css';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>tic — NOC follow-up timers</title>
+    <meta name="description" content="tic — quiet local-only timers + tasks for NOC follow-ups." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23faf4e8' stroke='%231734d8' stroke-width='6' stroke-dasharray='10 7'/><text x='50' y='70' font-size='56' text-anchor='middle' fill='%231734d8' font-family='Georgia' font-style='italic'>t</text></svg>" />
+  </head>
+  <body>
+    <canvas id="fluid" aria-hidden="true" class="fixed inset-0 -z-10 h-full w-full opacity-60"></canvas>
+    <div class="relative z-10 mx-auto max-w-[620px] px-5 pt-10 pb-20">
+      <header class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 class="m-0 text-[44px] leading-none font-normal tracking-tight"><em>tic</em></h1>
+          <p class="mt-2 text-[15px] text-ink/70 italic">quiet follow-ups for NOC shifts.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="count" class="text-sm text-ink/70 italic">—</span>
+          <button id="fab" type="button" class="cursor-pointer border-2 border-dashed border-ink bg-transparent px-[18px] py-2.5 font-serif text-[15px] text-ink italic hover:bg-ink hover:text-cream active:translate-y-px">+ new timer</button>
+        </div>
+      </header>
+
+      <hr class="my-5 border-0 border-t-2 border-dashed border-ink/45" />
+
+      <nav id="tabs" aria-label="Views" class="mb-5 flex border-2 border-dashed border-ink/45">
+        <button class="tab t-tab" data-view="timers" data-active="true" type="button">timers</button>
+        <button class="tab t-tab border-l-2 border-dashed border-ink/45" data-view="boxes" data-active="false" type="button">boxes</button>
+      </nav>
+
+      <div id="nocBar" aria-label="NOC quick follow-ups" class="mb-5 border-2 border-dashed border-ink/45 p-3"></div>
+
+      <section id="timerView">
+        <nav id="filters" aria-label="Filter by tag" class="mb-5 flex flex-wrap gap-2 empty:hidden"></nav>
+
+        <main id="grid" aria-live="polite" class="flex flex-col gap-4"></main>
+      </section>
+
+      <section id="boxView" hidden>
+        <nav id="boxFilters" aria-label="Filter boxes by tag" class="mb-5 flex flex-wrap gap-2 empty:hidden"></nav>
+
+        <div id="boxGrid" aria-live="polite" class="flex flex-col gap-4"></div>
+      </section>
+
+      <hr class="my-5 border-0 border-t-2 border-dashed border-ink/45" />
+
+      <footer class="flex flex-wrap items-center justify-between gap-3 text-[13px] text-ink/70 italic">
+        <span>tic · local-only</span>
+        <span class="opacity-80">n new · 1/2 tabs · space start</span>
+        <span><button id="handoverBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic font-bold text-ink hover:underline">handover copy</button> · <button id="exportBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic text-ink/70 hover:text-ink hover:underline">export</button> · <button id="importBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic text-ink/70 hover:text-ink hover:underline">import</button></span>
+      </footer>
+      <input type="file" id="importFile" accept="application/json,.json" class="hidden" />
+    </div>
+
+    <div class="group t-overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="t-sheetbox">
+        <h2 id="sheetTitle" class="t-sheeth">New timer</h2>
+        <p class="t-hint">Name it, time it, style it.</p>
+
+        <div class="t-field">
+          <label for="name" class="t-flabel">Name</label>
+          <input class="t-textin" id="name" maxlength="40" placeholder="e.g. Callback user" autocomplete="off" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="t-field">
+            <label for="ticket" class="t-flabel">Ticket #</label>
+            <input class="t-textin" id="ticket" maxlength="40" placeholder="INC1234" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="t-field">
+            <label class="t-flabel">Priority</label>
+            <div class="grid grid-cols-2 gap-2" id="prioRow"></div>
+          </div>
+        </div>
+
+        <div class="t-field">
+          <label class="t-flabel">Duration</label>
+          <div class="grid grid-cols-3 gap-2.5">
+            <div class="text-center"><input class="t-textin" id="h" type="number" min="0" max="99" value="0" /><span class="t-durlab">Hrs</span></div>
+            <div class="text-center"><input class="t-textin" id="m" type="number" min="0" max="599" value="5" /><span class="t-durlab">Min</span></div>
+            <div class="text-center"><input class="t-textin" id="s" type="number" min="0" max="59" value="0" /><span class="t-durlab">Sec</span></div>
+          </div>
+          <div class="mt-2.5 flex flex-wrap gap-2" id="presets">
+            <button type="button" data-sec="60" class="t-preset">1m</button>
+            <button type="button" data-sec="300" class="t-preset">5m</button>
+            <button type="button" data-sec="600" class="t-preset">10m</button>
+            <button type="button" data-sec="900" class="t-preset">15m</button>
+            <button type="button" data-sec="1500" class="t-preset">25m</button>
+            <button type="button" data-sec="3000" class="t-preset">50m</button>
+          </div>
+        </div>
+
+        <div class="t-field">
+          <label class="t-flabel">Style · colour</label>
+          <div class="flex flex-wrap gap-2.5" id="swatches"></div>
+        </div>
+
+        <div class="t-field">
+          <label class="t-flabel">Style · ring weight</label>
+          <div class="grid grid-cols-3 gap-2" id="ringstyle"></div>
+        </div>
+
+        <div class="t-field">
+          <label class="t-flabel">Ring sound</label>
+          <div class="flex flex-col gap-2" id="rings"></div>
+        </div>
+
+        <div class="t-field">
+          <label class="t-flabel" for="next">Next up <span class="opacity-70">— auto-starts when this finishes</span></label>
+          <select id="next" class="t-textin"></select>
+        </div>
+
+        <div class="t-field">
+          <label for="tags" class="t-flabel">Tags <span class="opacity-70">— comma separated</span></label>
+          <input class="t-textin" id="tags" placeholder="focus, kitchen…" autocomplete="off" />
+        </div>
+
+        <div class="mt-1.5 flex gap-2.5">
+          <button class="t-ghost" id="cancelBtn" type="button">Cancel</button>
+          <button class="t-primary" id="saveBtn" type="button">Add timer</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="group t-overlay" id="boxOverlay" role="dialog" aria-modal="true" aria-labelledby="boxSheetTitle">
+      <div class="t-sheetbox">
+        <h2 id="boxSheetTitle" class="t-sheeth">New box</h2>
+        <p class="t-hint">A little box for a thought, a task, a list.</p>
+
+        <div class="t-field">
+          <label for="btitle" class="t-flabel">Title</label>
+          <input class="t-textin" id="btitle" maxlength="60" placeholder="e.g. Call back user" autocomplete="off" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="t-field">
+            <label for="bticket" class="t-flabel">Ticket #</label>
+            <input class="t-textin" id="bticket" maxlength="40" placeholder="INC1234" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="t-field">
+            <label class="t-flabel">Priority</label>
+            <div class="grid grid-cols-2 gap-2" id="bprioRow"></div>
+          </div>
+        </div>
+
+        <div class="t-field">
+          <label for="bbody" class="t-flabel">Body</label>
+          <textarea class="t-textin min-h-[96px] resize-y leading-normal" id="bbody" rows="4" placeholder="whatever's in it…"></textarea>
+        </div>
+
+        <div class="t-field">
+          <label class="t-flabel">Style · colour</label>
+          <div class="flex flex-wrap gap-2.5" id="bswatches"></div>
+        </div>
+
+        <div class="t-field">
+          <label for="btags" class="t-flabel">Tags <span class="opacity-70">— comma separated</span></label>
+          <input class="t-textin" id="btags" placeholder="home, urgent…" autocomplete="off" />
+        </div>
+
+        <div class="mt-1.5 flex gap-2.5">
+          <button class="t-ghost" id="boxCancel" type="button">Cancel</button>
+          <button class="t-primary" id="boxSave" type="button">Add box</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      import { init } from '../scripts/app.ts';
+      import { initBoxes } from '../scripts/boxes.ts';
+      import { initFluid } from '../scripts/fluid.ts';
+      init();
+      initBoxes();
+      initFluid();
+    </script>
+  </body>
+</html>

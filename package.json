@@ -1,0 +1,20 @@
+{
+  "name": "tic",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^7.3.2",
+    "shaders": "^3.2.467"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/bun": "latest",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5"
+  }
+}
