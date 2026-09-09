@@ -269,20 +269,24 @@ import '../styles/global.css';
         function $(s, r) { return (r || document).querySelector(s); }
         function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
 
-        /* ---- overlay data-open bridge ---- */
+        /* ---- overlay data-open bridge ----
+           NOTE: every write below is value-guarded. The observer at the end
+           watches data-open, so an unconditional write here re-queues a
+           mutation record and wedges the renderer in a microtask loop
+           (no tasks — not even rAF — ever run again). */
         function syncOverlay(ov) {
           if (!ov || !ov.classList || !ov.classList.contains('t-overlay')) return;
           if (ov.dataset.open === 'true') {
-            ov.removeAttribute('hidden');
-            ov.removeAttribute('inert');
-            try { ov.inert = false; } catch (e) {}
-            ov.setAttribute('aria-hidden', 'false');
+            if (ov.hasAttribute('hidden')) ov.removeAttribute('hidden');
+            if (ov.hasAttribute('inert')) ov.removeAttribute('inert');
+            try { if (ov.inert) ov.inert = false; } catch (e) {}
+            if (ov.getAttribute('aria-hidden') !== 'false') ov.setAttribute('aria-hidden', 'false');
           } else {
-            ov.dataset.open = 'false';
-            ov.setAttribute('hidden', '');
-            ov.setAttribute('inert', '');
-            try { ov.inert = true; } catch (e) {}
-            ov.setAttribute('aria-hidden', 'true');
+            if (ov.dataset.open !== 'false') ov.dataset.open = 'false';
+            if (!ov.hasAttribute('hidden')) ov.setAttribute('hidden', '');
+            if (!ov.hasAttribute('inert')) ov.setAttribute('inert', '');
+            try { if (!ov.inert) ov.inert = true; } catch (e) {}
+            if (ov.getAttribute('aria-hidden') !== 'true') ov.setAttribute('aria-hidden', 'true');
           }
         }
         $$('.t-overlay').forEach(syncOverlay);
