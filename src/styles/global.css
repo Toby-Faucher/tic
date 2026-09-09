@@ -174,3 +174,75 @@
   }
   #fluid { opacity: 0.35; }
 }
+
+/* fx micro-interactions (appended) — quiet GPU accents for controls.
+   All motion lives under .fx (added by fx.ts), so no-JS renders exactly
+   as before. Pure-CSS fallback carries the look; WebGPU canvases
+   (canvas.fx-gpu, shown only under .fx-gpu-on) add a slow sheen on top. */
+.fx #fab, .fx .t-play, .fx .t-primary, .fx .t-nocbtn, .fx .t-chip,
+.fx .t-reset, .fx .t-boxring {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Glass sheen sweep on primary actions — cream light, hover-only, slow. */
+.fx #fab::after, .fx .t-play::after, .fx .t-primary::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 55%;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 20%, rgb(250 244 232 / 0.32) 50%, transparent 80%);
+  transform: translateX(-160%) skewX(-12deg);
+  transition: transform 0.8s var(--ease-out);
+}
+.fx #fab:hover::after, .fx .t-play:hover::after, .fx .t-primary:hover::after {
+  transform: translateX(280%) skewX(-12deg);
+}
+
+/* Cursor-tracked highlight on cards — position fed by fx.ts via --mx/--my. */
+.fx .t-card { position: relative; }
+.fx .t-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(130px circle at var(--mx, 50%) var(--my, 50%), rgb(23 52 216 / 0.08), transparent 70%);
+  opacity: 0;
+  transition: opacity var(--dur-base) ease-out;
+}
+.fx .t-card:hover::before { opacity: 1; }
+
+/* GPU sheen canvas — tiny Blob overlay, subtle by opacity, never felt. */
+canvas.fx-gpu { display: none; }
+.fx-gpu-on canvas.fx-gpu {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+/* Press ripple — expanding currentColor ring, visible on cream and ink. */
+.fx-ripple {
+  position: absolute;
+  border: 2px solid currentColor;
+  border-radius: 50% !important;
+  opacity: 0.55;
+  pointer-events: none;
+  transform: scale(0.12);
+  animation: fx-ripple 0.55s ease-out forwards;
+}
+@keyframes fx-ripple {
+  to { transform: scale(1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx #fab::after, .fx .t-play::after, .fx .t-primary::after,
+  .fx .t-card::before, .fx-ripple { display: none; }
+  .fx-gpu-on canvas.fx-gpu { opacity: 0.14; }
+}
