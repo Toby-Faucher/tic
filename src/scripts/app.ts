@@ -1,4 +1,4 @@
-import { RINGS, previewRing, playRing, type RingId } from './sounds.ts';
+import { RINGS, previewRing, startAlarm, stopAlarm, resumeAlarm, type RingId } from './sounds.ts';
 
 export type Accent = string;
 export type RingStyle = 'thin' | 'classic' | 'bold';
@@ -44,6 +44,18 @@ export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().to
 let timers: TicTimer[] = [];
 let filter: string | null = null;
 let editingId: string | null = null;
+
+// Done-alarm ownership: with the replace-newest policy only the most
+// recently finished timer owns the looping sound. Dismiss rule: any
+// toggle / reset / remove (or edit) on THAT timer silences its alarm;
+// pagehide silences everything. Card-level dismiss only — no global mute
+// button, so the existing "restart" (toggle) / reset / delete buttons on a
+// done card are its silence affordance.
+let ringingId: string | null = null;
+function dismissAlarm(id: string) {
+  if (ringingId !== null && ringingId === id) { ringingId = null; stopAlarm(); }
+}
+function silenceAllAlarms() { ringingId = null; stopAlarm(); }
 
 let fAccent: Accent = 'blue';
 let fRingStyle: RingStyle = 'classic';
@@ -248,6 +260,7 @@ function paintCard(t: TicTimer) {
 function toggle(id: string) {
   const t = timers.find((x) => x.id === id);
   if (!t) return;
+  dismissAlarm(id); // touching a ringing card (incl. "restart") silences it
   if (t.status === 'running') {
     t.remainingMs = Math.max(0, (t.endsAt ?? Date.now()) - Date.now());
     t.endsAt = null; t.status = 'paused';
@@ -264,11 +277,13 @@ function toggle(id: string) {
 function reset(id: string) {
   const t = timers.find((x) => x.id === id);
   if (!t) return;
+  dismissAlarm(id); // resetting a ringing card silences it
   t.remainingMs = t.totalSeconds * 1000; t.endsAt = null;
   t.status = 'idle'; save(); paintCard(t); updateCount();
 }
 
 function remove(id: string) {
+  dismissAlarm(id); // deleting a ringing timer stops its sound
   timers = timers.filter((t) => t.id !== id);
   save(); render();
 }
@@ -286,8 +301,13 @@ function notifyDone(t: TicTimer) {
 
 function finish(t: TicTimer) {
   t.status = 'done'; t.remainingMs = 0; t.endsAt = null;
-  // Quiet nudge by default: routine = single soft ring, urgent = triple.
-  playRing(t.ring, t.priority === 'urgent' ? 3 : 1);
+  // Looping alarm until dismissed: routine = soft sparse loop, urgent =
+  // triple-pattern loop. Replace-newest: a newer finish takes the speaker
+  // from an older still-ringing card. If the tab is hidden the Notification
+  // still fires and the interval keeps retrying, so sound starts on the
+  // next user interaction (see resumeAlarm wiring in init()).
+  startAlarm(t.ring, { urgent: t.priority === 'urgent' });
+  ringingId = t.id;
   try { navigator.vibrate?.(200); } catch { /* noop */ }
   notifyDone(t);
   if (t.nextId) {
@@ -313,6 +333,7 @@ export function toggleFirstTimer() {
 export function getTimersState(): TicTimer[] { return timers; }
 export function setTimersState(list: TicTimer[]) {
   timers = list;
+  silenceAllAlarms(); // explicit state replace (import) dismisses any alarm
   save(); render();
 }
 
@@ -401,6 +422,7 @@ function updateTabChrome(now: number) {
 
 export function openModal(id: string | null) {
   editingId = id;
+  if (id) dismissAlarm(id); // editing a ringing timer stops its sound
   const t = id ? timers.find((x) => x.id === id) : null;
   $('#sheetTitle').textContent = t ? 'Edit timer' : 'New timer';
   ($('#name') as HTMLInputElement).value = t?.name ?? '';
@@ -517,6 +539,8 @@ function saveForm() {
   const picked = (($('#next') as HTMLSelectElement).value || '') || null;
   const nextId = picked && timers.some((x) => x.id === picked) ? picked : null;
 
+  if (editingId) dismissAlarm(editingId); // saving an edit on a ringing timer keeps it silent
+
   if (editingId) {
     const t = timers.find((x) => x.id === editingId);
     if (t) {
@@ -573,6 +597,12 @@ export function init() {
   render();
   ensureTick();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) ensureTick(); });
+  window.addEventListener('pagehide', silenceAllAlarms);
+  // If the AudioContext started suspended (finish while hidden / pre-gesture),
+  // the first user interaction unlocks it and replays the active alarm at once.
+  const unlock = () => resumeAlarm();
+  window.addEventListener('pointerdown', unlock);
+  window.addEventListener('keydown', unlock);
 
   ($('#fab') as HTMLButtonElement).onclick = () => openModal(null);
   $('#cancelBtn').addEventListener('click', closeModal);
