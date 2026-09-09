@@ -174,3 +174,53 @@
   }
   #fluid { opacity: 0.35; }
 }
+
+/* ---- tic dark mode — NOC night-shift friendly (appended; light rules above untouched) ----
+   Strategy: --color-cream/--color-ink are the tokens Tailwind v4 utilities
+   resolve to (bg-cream, text-ink, border-ink, …), so remapping them flips the
+   whole paper aesthetic at once. Dashed borders stay dashed; only baked-in
+   light values (orange accents, swatch rings, card glow) get explicit nudges. */
+html[data-theme="dark"] {
+  --color-cream: #0e1430;
+  --color-ink: #b9c4ff;
+  color-scheme: dark;
+}
+/* Dim the shader layer so the canvas never glares at 3am. */
+[data-theme="dark"] #fluid {
+  opacity: 0.32;
+  background: var(--color-cream);
+}
+/* Card glow was a baked ink-blue; soften to periwinkle so it reads, not glares. */
+[data-theme="dark"] .t-card:hover {
+  box-shadow: 0 8px 24px -12px rgb(185 196 255 / 0.25);
+}
+[data-theme="dark"] .t-card[data-status="running"] {
+  box-shadow: 0 8px 28px -12px rgb(185 196 255 / 0.3);
+}
+/* Orange-700 accents go muddy on navy — lift urgent signals to warm amber. */
+[data-theme="dark"] .t-prio {
+  color: #faf4e8;
+}
+[data-theme="dark"] .t-need {
+  color: #ff9d5c;
+}
+[data-theme="dark"] .t-card[data-need="true"] {
+  border-color: #ff9d5c;
+  background-color: rgb(255 157 92 / 0.08);
+}
+[data-theme="dark"] .t-nocbtn[data-urgent="true"] {
+  border-color: #ff9d5c;
+}
+/* Native colour-picker rings were baked ink-blue; match the dark ink. */
+[data-theme="dark"] #accentWheel::-webkit-color-swatch,
+[data-theme="dark"] #baccentWheel::-webkit-color-swatch { border-color: #b9c4ff; }
+[data-theme="dark"] #accentWheel::-moz-color-swatch,
+[data-theme="dark"] #baccentWheel::-moz-color-swatch { border-color: #b9c4ff; }
+[data-theme="dark"] #accentWheel[data-sel="true"],
+[data-theme="dark"] #baccentWheel[data-sel="true"] {
+  outline-color: #b9c4ff;
+}
+[data-theme="dark"] ::selection {
+  background: #b9c4ff;
+  color: #0e1430;
+}

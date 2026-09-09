@@ -9,6 +9,10 @@ import type { ShaderInstance } from 'shaders/js';
 const CREAM = '#faf4e8';
 const PERIWINKLE = '#b9c4ff';
 const WARM = '#ff9d5c';
+// Dark-mode fog — deep navy base, dim indigo drift. Low-glare for night shifts;
+// the canvas is additionally dimmed via CSS under [data-theme="dark"].
+const DARK_A = '#0e1430';
+const DARK_B = '#3340a0';
 
 let gpu: ShaderInstance | null = null;
 let fallback: { setAlert: (on: boolean) => void; destroy: () => void } | null = null;
@@ -19,10 +23,20 @@ function reducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+function isDarkTheme(): boolean {
+  return document.documentElement?.dataset?.theme === 'dark';
+}
+
+function fogColors(): { colorA: string; colorB: string } {
+  const dark = isDarkTheme();
+  return { colorA: dark ? DARK_A : CREAM, colorB: alertOn ? WARM : dark ? DARK_B : PERIWINKLE };
+}
+
 async function startGpu(canvas: HTMLCanvasElement): Promise<boolean> {
   try {
     const mod = await import('shaders/js');
     if (!mod.isWebGPUSupported()) return false;
+    const initial = fogColors();
     gpu = await mod.createShader(
       canvas,
       {
@@ -31,8 +45,8 @@ async function startGpu(canvas: HTMLCanvasElement): Promise<boolean> {
             type: 'Fog',
             id: 'fog',
             props: {
-              colorA: CREAM,
-              colorB: PERIWINKLE,
+              colorA: initial.colorA,
+              colorB: initial.colorB,
               seed: 7,
               speed: reducedMotion() ? 0 : 0.32,
               turbulence: 0.55,
@@ -173,7 +187,7 @@ function applyAlert(on: boolean) {
   if (on === alertOn) return;
   alertOn = on;
   try {
-    gpu?.update('fog', { colorB: on ? WARM : PERIWINKLE });
+    gpu?.update('fog', { colorB: on ? WARM : isDarkTheme() ? DARK_B : PERIWINKLE });
   } catch {
     /* keep calm, carry on */
   }
@@ -204,6 +218,7 @@ function watchUrgency() {
 export function initFluid() {
   const canvas = document.getElementById('fluid') as HTMLCanvasElement | null;
   if (!canvas) return;
+  watchTheme();
   // No WebGPU → skip the 2MB download entirely, go straight to fallback.
   if (!('gpu' in navigator)) {
     startFallback(canvas);
@@ -213,6 +228,20 @@ export function initFluid() {
     });
   }
   watchUrgency();
+}
+
+// Follow tic:theme (dispatched by theme.ts) so the WebGPU fog tracks dark
+// mode. The raw-WebGL fallback keeps its baked palette — CSS dims it under
+// [data-theme="dark"], which is enough at 0.32 opacity.
+function watchTheme() {
+  document.addEventListener('tic:theme', () => {
+    try {
+      const c = fogColors();
+      gpu?.update('fog', { colorA: c.colorA, colorB: c.colorB });
+    } catch {
+      /* keep calm, carry on */
+    }
+  });
 }
 
 export function setFluidAlert(on: boolean) {
