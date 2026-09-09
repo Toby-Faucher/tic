@@ -1,6 +1,10 @@
-import { playPop } from './sounds.ts';
-import { ACCENTS, accentColor, escapeHtml, uid, openModal as openTimerModal, toggleFirstTimer, getTimersState, setTimersState, createTimer, linkTimerToBox } from './app.ts';
+import { playTick, getTick } from './sounds.ts';
+import { ACCENTS, accentColor, escapeHtml, uid, openModal as openTimerModal, toggleFirstTimer, getTimersState, setTimersState, createTimer, linkTimerToBox, resetTimerFilter } from './app.ts';
+import { getPrimary, PRIMARY_EVENT, trapTabFor, pushEscapeCloser, popEscapeCloser } from './settings.ts';
+import { getGoalText } from './goal.ts';
 import { NOC_TEMPLATES, handoverMarkdown, type NocTemplate } from './noc.ts';
+import { sanitizeBox, sanitizeTimer, parseTags, parseTicket } from './validate.ts';
+import { KEYS, readJSON, writeJSON } from './keys.ts';
 
 export type BoxPriority = 'routine' | 'urgent';
 
@@ -19,11 +23,12 @@ export interface TicBox {
   linkId: string | null;
 }
 
-const LS_KEY = 'tic.boxes.v1';
+const LS_KEY = KEYS.boxes;
 
 let boxes: TicBox[] = [];
 let bfilter: string | null = null;
 let bediting: string | null = null;
+let boxInvoker: HTMLElement | null = null;
 let bfAccent = 'blue';
 let bfTicket = '';
 let bfPriority: BoxPriority = 'routine';
@@ -32,19 +37,15 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySe
 const $$ = <T extends HTMLElement = HTMLElement>(sel: string) => [...document.querySelectorAll<T>(sel)];
 
 function load() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return seed();
-    boxes = JSON.parse(raw) as TicBox[];
-    boxes.forEach((b) => {
-      b.pinned ??= false;
-      if (typeof b.order !== 'number') b.order = b.createdAt;
-      if (typeof (b as Partial<TicBox>).ticket !== 'string') b.ticket = '';
-      if ((b as Partial<TicBox>).priority !== 'urgent') b.priority = 'routine';
-      if (typeof (b as Partial<TicBox>).linkId !== 'string') b.linkId = null;
-    });
-    if (!boxes.length) seed();
-  } catch { seed(); }
+  const parsed = readJSON<unknown>(LS_KEY, null);
+  if (parsed === null) return seed();
+  if (!Array.isArray(parsed)) return seed();
+  const clean: TicBox[] = [];
+  for (const row of parsed) {
+    const s = sanitizeBox(row);
+    if (s) clean.push(s);
+  }
+  boxes = clean;
 }
 
 function seed() {
@@ -57,7 +58,7 @@ function seed() {
 }
 
 function save() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(boxes)); } catch { /* ignore */ }
+  writeJSON(LS_KEY, boxes);
 }
 
 function allTags(): string[] {
@@ -100,7 +101,7 @@ function renderGrid() {
   grid.innerHTML = '';
   const list = visible();
   if (!list.length) {
-    grid.innerHTML = `<div class="t-empty"><h2 class="t-emptyh">no boxes here</h2><p class="t-emptyp">${bfilter ? `nothing tagged #${bfilter} yet.` : 'make one above to begin.'}</p></div>`;
+    grid.innerHTML = `<div class="t-empty"><h2 class="t-emptyh">no boxes here</h2><p class="t-emptyp">${bfilter ? `nothing tagged #${escapeHtml(bfilter)} yet.` : 'make one above to begin.'}</p></div>`;
     return;
   }
   list.forEach((b) => {
@@ -109,7 +110,8 @@ function renderGrid() {
     card.dataset.done = String(b.done);
     const linkedForFlag = b.linkId ? getTimersState().find((t) => t.id === b.linkId) : undefined;
     if (linkedForFlag?.status === 'done' && !b.done) card.dataset.need = 'true';
-    card.style.setProperty('--accent', accentColor(b.accent));
+    // 'blue' binds the live token so settings changes apply with no JS repaint.
+    card.style.setProperty('--accent', b.accent === 'blue' ? 'var(--color-ink)' : accentColor(b.accent));
     card.id = `box-${b.id}`;
 
     const tagsHtml = b.tags.length
@@ -122,7 +124,7 @@ function renderGrid() {
     const linkedHtml = linked
       ? linked.status === 'done'
         ? '<span class="t-need">· timer up — do it</span>'
-        : `<span class="t-linked">· timer ${linked.status}</span>`
+        : `<span class="t-linked">· timer ${escapeHtml(linked.status)}</span>`
       : '';
 
     card.innerHTML = `
@@ -169,10 +171,28 @@ function toggle(id: string) {
   const b = boxes.find((x) => x.id === id);
   if (!b) return;
   b.done = !b.done;
-  save(); render();
+  save();
+  // In-place flip: no full render. Update dataset + meta text directly.
+  const card = document.getElementById(`box-${id}`);
+  if (card) {
+    card.dataset.done = String(b.done);
+    const linkedFlag = b.linkId ? getTimersState().find((t) => t.id === b.linkId) : undefined;
+    if (!b.done && linkedFlag?.status === 'done') card.dataset.need = 'true';
+    else card.removeAttribute('data-need');
+    const meta = card.querySelector('.t-meta span:nth-child(2)');
+    if (meta) {
+      const date = new Date(b.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      meta.textContent = `${b.done ? 'done' : 'open'} · ${date}`;
+    }
+    const btn = card.querySelector('[data-act="toggle"]');
+    if (btn) {
+      btn.setAttribute('aria-label', b.done ? 'Untick' : 'Tick off');
+    }
+  } else {
+    render();
+  }
   if (b.done) {
-    playPop();
-    const card = document.getElementById(`box-${id}`);
+    playTick(getTick());
     if (card) {
       card.classList.remove('animate-pop');
       void card.offsetWidth;
@@ -190,9 +210,19 @@ function togglePin(id: string) {
 
 function persistOrder() {
   const grid = $('#boxGrid');
-  [...grid.querySelectorAll('article')].forEach((el, i) => {
-    const b = boxes.find((x) => `box-${x.id}` === el.id);
-    if (b) b.order = i;
+  const domIds = [...grid.querySelectorAll('article')]
+    .map((el) => el.id.replace(/^box-/, ''))
+    .filter((id) => boxes.some((x) => x.id === id));
+  if (!domIds.length) return;
+  // Filtered-drag fix: map the dragged visible order onto the prior sorted
+  // order values so hidden (filtered-out) boxes keep their positions.
+  const ordered = domIds
+    .map((id) => boxes.find((x) => x.id === id)!)
+    .filter(Boolean);
+  const prior = ordered.map((b) => b.order).sort((a, b2) => a - b2);
+  domIds.forEach((id, i) => {
+    const b = boxes.find((x) => x.id === id);
+    if (b && typeof prior[i] === 'number') b.order = prior[i] as number;
   });
   save(); render();
 }
@@ -204,8 +234,7 @@ function remove(id: string) {
 
 function openModal(id: string | null) {
   bediting = id;
-  const b = id ? boxes.find((x) => x.id === id) : null;
-  $('#boxSheetTitle').textContent = b ? 'Edit box' : 'New box';
+  const b = id ? boxes.find((x) => x.id === id) : null;  $('#boxSheetTitle').textContent = b ? 'Edit box' : 'New box';
   ($('#btitle') as HTMLInputElement).value = b?.title ?? '';
   ($('#bbody') as HTMLTextAreaElement).value = b?.body ?? '';
   ($('#btags') as HTMLInputElement).value = b?.tags.join(', ') ?? '';
@@ -216,25 +245,30 @@ function openModal(id: string | null) {
   bfPriority = b?.priority ?? 'routine';
   $('#boxSave').textContent = b ? 'Save changes' : 'Add box';
   paintForm();
+  boxInvoker = document.activeElement as HTMLElement | null;
   $('#boxOverlay').dataset.open = 'true';
-  setTimeout(() => ($('#btitle') as HTMLInputElement).focus(), 120);
+  pushEscapeCloser(closeModal);
+  ($('#btitle') as HTMLInputElement).focus();
 }
 function closeModal() {
   const ov = $('#boxOverlay');
-  if (ov.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+  if (ov.dataset.open !== 'true') return;
   ov.dataset.open = 'false';
+  popEscapeCloser(closeModal);
   bediting = null;
+  if (boxInvoker && document.contains(boxInvoker)) boxInvoker.focus();
+  boxInvoker = null;
 }
 
 function paintForm() {
-  $$('#bswatches .swatch').forEach((x) => { (x as HTMLElement).dataset.sel = String((x as HTMLElement).dataset.accent === bfAccent); });
+  $$('#bswatches .swatch').forEach((x) => { const el = x as HTMLElement; el.dataset.sel = String(el.dataset.accent === bfAccent); el.setAttribute('aria-pressed', String(el.dataset.accent === bfAccent)); });
   const wheel = document.getElementById('baccentWheel') as HTMLInputElement | null;
   if (wheel) {
-    const custom = bfAccent.startsWith('#');
-    wheel.value = custom ? bfAccent : '#1734d8';
+    const custom = typeof bfAccent === 'string' && bfAccent.startsWith('#');
+    wheel.value = custom ? (bfAccent as string) : getPrimary();
     wheel.dataset.sel = String(custom);
   }
-  $$('#bprioRow button').forEach((x) => { (x as HTMLElement).dataset.sel = String((x as HTMLElement).dataset.prio === bfPriority); });
+  $$('#bprioRow button').forEach((x) => { const el = x as HTMLElement; el.dataset.sel = String(el.dataset.prio === bfPriority); el.setAttribute('aria-pressed', String(el.dataset.prio === bfPriority)); });
 }
 
 function buildFormStatics() {
@@ -250,7 +284,7 @@ function buildFormStatics() {
   const wheel = document.createElement('input');
   wheel.type = 'color'; wheel.id = 'baccentWheel';
   wheel.title = 'Custom colour'; wheel.setAttribute('aria-label', 'Custom colour');
-  wheel.value = '#1734d8';
+  wheel.value = getPrimary();
   wheel.addEventListener('input', () => { bfAccent = wheel.value; paintForm(); });
   sw.appendChild(wheel);
 
@@ -270,59 +304,70 @@ function buildFormStatics() {
   bticket?.addEventListener('input', () => { bfTicket = bticket.value; });
 }
 
-export function createBox(opts: { title: string; body?: string; tags: string[]; ticket?: string; priority?: BoxPriority; linkId?: string | null; pinned?: boolean }): TicBox {
-  const order = boxes.reduce((m, x) => Math.max(m, typeof x.order === 'number' ? x.order : 0), 0) + 1;
+export function createBox(opts: { title: string; body?: string; tags: string[]; ticket?: string; priority?: BoxPriority; linkId?: string | null; pinned?: boolean }, deferRender = false): TicBox {
+  const order = boxes.reduce((m, x) => Math.max(m, typeof x.order === 'number' && Number.isFinite(x.order) ? x.order : 0), 0) + 1;
   const b: TicBox = {
     id: uid(),
-    title: opts.title || 'Untitled',
-    body: opts.body || '',
-    tags: opts.tags,
+    title: (opts.title || 'Untitled').slice(0, 120),
+    body: typeof opts.body === 'string' ? opts.body : '',
+    tags: parseTags(opts.tags),
     accent: opts.priority === 'urgent' ? 'orange' : 'blue',
     done: false,
     pinned: !!opts.pinned,
     order,
     createdAt: Date.now(),
-    ticket: (opts.ticket || '').slice(0, 40),
+    ticket: parseTicket(opts.ticket ?? ''),
     priority: opts.priority ?? 'routine',
-    linkId: opts.linkId ?? null,
+    linkId: typeof opts.linkId === 'string' ? opts.linkId : null,
   };
   boxes.push(b);
+  if (deferRender) return b;
   save(); render();
   return b;
 }
 
 export function createNocPair(t: NocTemplate, ticket = ''): void {
-  const cleanTicket = ticket.trim().slice(0, 40);
+  const cleanTicket = parseTicket(ticket);
   if (!t.makeBox && t.minutes <= 0) return;
   if (t.minutes <= 0) {
     createBox({ title: t.boxTitle, body: cleanTicket ? `ticket ${cleanTicket}` : '', tags: t.tags, ticket: cleanTicket, priority: t.priority });
     return;
   }
-  const box = t.makeBox
-    ? createBox({ title: t.boxTitle, body: cleanTicket ? `ticket ${cleanTicket}` : '', tags: t.tags, ticket: cleanTicket, priority: t.priority })
-    : null;
+  if (!t.makeBox) {
+    createTimer({
+      name: cleanTicket ? `${t.timerName} [${cleanTicket}]`.slice(0, 60) : t.timerName,
+      minutes: t.minutes,
+      tags: t.tags,
+      ticket: cleanTicket,
+      priority: t.priority,
+      linkId: null,
+      start: t.startTimer,
+    });
+    return;
+  }
+  // Single save+render per store: defer per-item flushes, link in memory once.
+  const box = createBox({ title: t.boxTitle, body: cleanTicket ? `ticket ${cleanTicket}` : '', tags: t.tags, ticket: cleanTicket, priority: t.priority }, true);
   const timer = createTimer({
     name: cleanTicket ? `${t.timerName} [${cleanTicket}]`.slice(0, 60) : t.timerName,
     minutes: t.minutes,
     tags: t.tags,
     ticket: cleanTicket,
     priority: t.priority,
-    linkId: box?.id ?? null,
+    linkId: box.id,
     start: t.startTimer,
-  });
-  if (box && timer) {
-    box.linkId = timer.id;
-    save(); render();
-    linkTimerToBox(timer.id, box.id);
-  }
+  }, true);
+  box.linkId = timer.id;
+  timer.linkId = box.id;
+  save(); render();
+  linkTimerToBox(timer.id, box.id);
 }
 
 function saveForm() {
-  const title = (($('#btitle') as HTMLInputElement).value || '').trim() || 'Untitled';
+  const title = ((($('#btitle') as HTMLInputElement).value || '').trim() || 'Untitled').slice(0, 120);
   const body = (($('#bbody') as HTMLTextAreaElement).value || '').trim();
-  const tags = (($('#btags') as HTMLInputElement).value || '').split(',').map((x) => x.trim().toLowerCase().replace(/^#/, '').replace(/\s+/g, '-')).filter(Boolean).slice(0, 5);
+  const tags = parseTags(($('#btags') as HTMLInputElement).value || '');
   const bticket = document.getElementById('bticket') as HTMLInputElement | null;
-  const ticket = (bticket?.value || bfTicket || '').trim().slice(0, 40);
+  const ticket = parseTicket(bticket?.value ?? bfTicket);
 
   if (bediting) {
     const b = boxes.find((x) => x.id === bediting);
@@ -370,7 +415,8 @@ function typingTarget(): boolean {
 
 function anyModalOpen(): boolean {
   return ($('#overlay') as HTMLElement).dataset.open === 'true'
-    || ($('#boxOverlay') as HTMLElement).dataset.open === 'true';
+    || ($('#boxOverlay') as HTMLElement).dataset.open === 'true'
+    || (document.getElementById('settingsOverlay') as HTMLElement | null)?.dataset.open === 'true';
 }
 
 function initShortcuts() {
@@ -391,14 +437,6 @@ function initShortcuts() {
       else toggleFirstTimer();
     }
   });
-}
-
-function validTimer(t: any): boolean {
-  return !!t && typeof t.id === 'string' && typeof t.name === 'string'
-    && typeof t.totalSeconds === 'number' && Array.isArray(t.tags);
-}
-function validBox(b: any): boolean {
-  return !!b && typeof b.id === 'string' && typeof b.title === 'string' && Array.isArray(b.tags);
 }
 
 function initBackup() {
@@ -427,26 +465,48 @@ function initBackup() {
     const f = file.files?.[0];
     file.value = '';
     if (!f) return;
+    // 1MB cap before reading — avoids freezing on huge drops.
+    if (f.size > 1024 * 1024) {
+      importBtn.textContent = 'too big';
+      announceAction('Import failed — file over 1MB');
+      setTimeout(() => { importBtn.textContent = origLabel; }, 1600);
+      return;
+    }
     try {
-      const parsed = JSON.parse(await f.text());
-      if (!Array.isArray(parsed.timers) || !Array.isArray(parsed.boxes)
-        || !parsed.timers.every(validTimer) || !parsed.boxes.every(validBox)) {
-        throw new Error('bad shape');
+      const parsed = JSON.parse(await f.text()) as { timers?: unknown; boxes?: unknown };
+      if (!parsed || !Array.isArray(parsed.timers) || !Array.isArray(parsed.boxes)) throw new Error('bad shape');
+      // Strict per-row sanitize: count skipped rows for feedback.
+      let skipped = 0;
+      const cleanTimers = [];
+      for (const row of parsed.timers) {
+        const s = sanitizeTimer(row);
+        if (s) cleanTimers.push(s);
+        else skipped++;
       }
-      setTimersState(parsed.timers);
-      boxes = parsed.boxes;
-      boxes.forEach((b) => {
-        b.pinned ??= false;
-        if (typeof b.order !== 'number') b.order = b.createdAt;
-        if (typeof (b as Partial<TicBox>).ticket !== 'string') b.ticket = '';
-        if ((b as Partial<TicBox>).priority !== 'urgent') b.priority = 'routine';
-        if (typeof (b as Partial<TicBox>).linkId !== 'string') b.linkId = null;
-      });
+      const cleanBoxes = [];
+      for (const row of parsed.boxes) {
+        const s = sanitizeBox(row);
+        if (s) cleanBoxes.push(s);
+        else skipped++;
+      }
+      if (!cleanTimers.length && !cleanBoxes.length) throw new Error(`bad file (${skipped} rows skipped)`);
+      // Second pass: drop dangling timer links against the surviving id set.
+      const ids = new Set(cleanTimers.map((t) => t.id));
+      for (const t of cleanTimers) {
+        if (t.nextId && (t.nextId === t.id || !ids.has(t.nextId))) t.nextId = null;
+        if (t.linkId && t.linkId === t.id) t.linkId = null;
+      }
+      setTimersState(cleanTimers);
+      boxes = cleanBoxes;
       bfilter = null;
+      resetTimerFilter();
       save(); render();
-      importBtn.textContent = 'done ✓';
-    } catch {
-      importBtn.textContent = 'bad file';
+      importBtn.textContent = skipped > 0 ? `bad file (${skipped} rows skipped)` : 'done ✓';
+      announceAction(skipped > 0 ? `Import finished — ${skipped} rows skipped` : 'Import finished');
+    } catch (e) {
+      const msg = e instanceof Error && /rows skipped/.test(e.message) ? e.message : 'bad file';
+      importBtn.textContent = msg;
+      announceAction(`Import failed — ${msg}`);
     }
     setTimeout(() => { importBtn.textContent = origLabel; }, 1600);
   });
@@ -454,15 +514,34 @@ function initBackup() {
 
 function initDrag() {
   const grid = $('#boxGrid');
+  let raf = 0;
+  let lastY = 0;
+  let midCache: { el: HTMLElement; mid: number }[] | null = null;
+  const invalidateMids = () => { midCache = null; };
+  grid.addEventListener('dragstart', invalidateMids, true);
   grid.addEventListener('dragover', (e) => {
     e.preventDefault();
-    const dragging = grid.querySelector('.dragging');
-    if (!dragging) return;
-    const cards = [...grid.querySelectorAll('article:not(.dragging)')] as HTMLElement[];
-    const after = cards.find((el) => e.clientY < el.getBoundingClientRect().top + el.offsetHeight / 2);
-    if (after) grid.insertBefore(dragging, after);
-    else grid.appendChild(dragging);
+    lastY = e.clientY;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const dragging = grid.querySelector('.dragging') as HTMLElement | null;
+      if (!dragging || !grid.contains(dragging)) return;
+      if (!midCache) {
+        midCache = [...grid.querySelectorAll('article:not(.dragging)')].map((el) => {
+          const r = (el as HTMLElement).getBoundingClientRect();
+          return { el: el as HTMLElement, mid: r.top + r.height / 2 };
+        });
+      }
+      const after = midCache.find((m) => lastY < m.mid)?.el;
+      if (after) grid.insertBefore(dragging, after);
+      else grid.appendChild(dragging);
+      // Midlines shift after a move — refresh cheaply next frame.
+      midCache = null;
+    });
   });
+  grid.addEventListener('drop', invalidateMids);
+  grid.addEventListener('dragend', invalidateMids);
 }
 
 function initNocBar() {
@@ -471,7 +550,7 @@ function initNocBar() {
   bar.innerHTML = '';
   const ticketWrap = document.createElement('div');
   ticketWrap.className = 't-noc-ticketwrap';
-  ticketWrap.innerHTML = `<input id="nocTicket" class="t-noc-ticket" placeholder="ticket # e.g. INC1234" autocomplete="off" spellcheck="false" />`;
+  ticketWrap.innerHTML = `<label class="sr-only" for="nocTicket">Ticket number</label><input id="nocTicket" class="t-noc-ticket" placeholder="ticket # e.g. INC1234" autocomplete="off" spellcheck="false" />`;
   bar.appendChild(ticketWrap);
   const btns = document.createElement('div');
   btns.className = 't-noc-btns';
@@ -492,6 +571,12 @@ function initNocBar() {
   bar.appendChild(btns);
 }
 
+function announceAction(msg: string) {
+  // Stable-label feedback for the #actionStatus role=status region
+  // (index.astro bridge also backstops textContent swaps into it).
+  try { (window as unknown as { __ticAnnounceAction?: (m: string) => void }).__ticAnnounceAction?.(msg); } catch { /* noop */ }
+}
+
 function initHandover() {
   const btn = document.getElementById('handoverBtn') as HTMLButtonElement | null;
   if (!btn) return;
@@ -500,10 +585,13 @@ function initHandover() {
     const md = handoverMarkdown(
       getTimersState().map((t) => ({ name: t.name, ticket: t.ticket, status: t.status, tags: t.tags, priority: t.priority })),
       getBoxesState().map((b) => ({ title: b.title, body: b.body, ticket: b.ticket, tags: b.tags, done: b.done, pinned: b.pinned, priority: b.priority })),
+      '',
+      getGoalText(),
     );
     try {
       await navigator.clipboard.writeText(md);
       btn.textContent = 'copied ✓';
+      announceAction('Handover copied to clipboard');
     } catch {
       // Clipboard blocked — download instead so nothing is lost.
       const blob = new Blob([md], { type: 'text/markdown' });
@@ -515,6 +603,7 @@ function initHandover() {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       btn.textContent = 'saved ✓';
+      announceAction('Clipboard blocked — handover downloaded as Markdown');
     }
     setTimeout(() => { btn.textContent = orig; }, 1600);
   });
@@ -533,9 +622,29 @@ export function initBoxes() {
 
   $('#boxCancel').addEventListener('click', closeModal);
   $('#boxSave').addEventListener('click', saveForm);
+  // 'blue' accents bind var(--color-ink) live, so primary changes need no
+  // re-render here — just keep the form's fallback wheel in sync.
+  document.addEventListener(PRIMARY_EVENT, () => {
+    const wheel = document.getElementById('baccentWheel') as HTMLInputElement | null;
+    if (wheel && (typeof bfAccent !== 'string' || !bfAccent.startsWith('#'))) wheel.value = getPrimary();
+  });
   $('#boxOverlay').addEventListener('click', (e) => { if (e.target === $('#boxOverlay')) closeModal(); });
+  $('#boxOverlay').addEventListener('keydown', trapTabFor('boxOverlay'));
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
-    if (e.key === 'Enter' && (e.target as HTMLElement).id !== 'bbody' && $('#boxOverlay').dataset.open === 'true' && (e.target as HTMLElement).tagName !== 'BUTTON') saveForm();
+    if (e.key === 'Escape') {
+      // Managed LIFO stack (settings.ts, capture phase) owns Escape when any
+      // pushed modal is open — don't close out of order underneath it.
+      const stack = (window as unknown as { __ticEscapeStack?: unknown[] }).__ticEscapeStack;
+      if (stack && stack.length > 0) return;
+      closeModal();
+    }
+    if (e.key === 'Enter' && $('#boxOverlay').dataset.open === 'true') {
+      const el = e.target as HTMLElement;
+      const tag = el.tagName;
+      if (tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (tag === 'INPUT' && (el as HTMLInputElement).type === 'color') return;
+      e.preventDefault();
+      saveForm();
+    }
   });
 }

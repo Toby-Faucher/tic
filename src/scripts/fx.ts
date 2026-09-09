@@ -1,4 +1,5 @@
 import type { ShaderInstance } from 'shaders/js';
+import { getPrimary, PRIMARY_EVENT } from './settings.ts';
 
 // tic micro-interactions — quiet GPU accents for buttons + cards.
 //
@@ -7,34 +8,39 @@ import type { ShaderInstance } from 'shaders/js';
 //      cursor-tracked highlight on cards via --mx/--my, press ripple.
 //      Buttons look complete with zero WebGPU.
 //   2. GPU sheen (WebGPU only): a tiny standalone `Blob` canvas overlaid on
-//      the primary "+ new timer/box" button and timer play buttons at low
-//      CSS opacity. (Glass/Glow need child textures, so Blob is the quiet
-//      stand-in — same ink/cream palette, slow drift.)
+//      the primary "+ new timer/box" button (#fab) at low CSS opacity.
+//      (Glass/Glow need child textures, so Blob is the quiet stand-in —
+//      same ink/cream palette, slow drift.)
+//
+// PERF (AGENT PERF): fab-only = 1 WebGPU context. The old MAX_PLAY_SHEENS=8
+// path (up to 9 concurrent contexts) plus the 250ms #grid MutationObserver
+// teardown/recreate storm are deleted — #fab is static so no render observer
+// is needed at all. Resize is debounced ≥200ms with a hidden-tab skip.
+// Reduced-motion returns BEFORE the dynamic import, so those users never
+// download the shaders chunk (~683KB gzip).
 //
 // The shaders.com lib (~2MB) loads async only when WebGPU exists — same
 // lazy pattern as fluid.ts, so the main bundle stays instant.
 // Respects prefers-reduced-motion (static, no animation) and pauses when
 // the tab is hidden.
 
-const INK = '#1734d8';
 const CREAM = '#faf4e8';
-const MAX_PLAY_SHEENS = 8;
+
+function primary(): string {
+  try { return getPrimary(); } catch { return '#1734d8'; }
+}
 
 let started = false;
 let reduceMotion = false;
 let gpuOk = false;
+let gpuLayerStarted = false;
+let shaderMod: typeof import('shaders/js') | null = null;
 let sheens: ShaderInstance[] = [];
-let moTimer = 0;
+let resizeTimer = 0;
+let mq: MediaQueryList | null = null;
 
 function prefersReduced(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
-function accentOf(el: HTMLElement, fallback: string): string {
-  // Play buttons live inside cards that carry --accent.
-  const card = el.closest('.t-card') as HTMLElement | null;
-  const raw = (card?.style.getPropertyValue('--accent') || '').trim();
-  return raw || fallback;
 }
 
 // --- Layer 1: pointer-driven CSS hooks (no GPU needed) -----------------------
@@ -78,7 +84,21 @@ function onPointerDown(e: PointerEvent) {
   btn.appendChild(s);
 }
 
-// --- Layer 2: GPU sheen overlays --------------------------------------------
+function onFocusIn(e: FocusEvent) {
+  // Keyboard parity for the card highlight: centre the --mx/--my glow on
+  // the focused card using the existing CSS-var hook (no CSS change needed).
+  // Native :focus-visible outline remains the primary focus indicator —
+  // owned by CSS (see note for a11y agent in initFx).
+  if (reduceMotion) return;
+  const card = (e.target as HTMLElement).closest?.('.t-card') as HTMLElement | null;
+  if (!card) return;
+  const r = card.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return;
+  card.style.setProperty('--mx', `${r.width / 2}px`);
+  card.style.setProperty('--my', `${r.height / 2}px`);
+}
+
+// --- Layer 2: GPU sheen overlay (fab only) ----------------------------------
 
 function sizeCanvas(canvas: HTMLCanvasElement, host: HTMLElement) {
   const dpr = Math.min(1.5, window.devicePixelRatio || 1);
@@ -147,44 +167,44 @@ function teardownSheens() {
   document.querySelectorAll('canvas.fx-gpu').forEach((c) => c.remove());
 }
 
+async function attachFab() {
+  if (!shaderMod || !gpuOk || reduceMotion || document.hidden) return;
+  const fab = document.getElementById('fab');
+  if (!fab) return;
+  const inst = await attachSheen(shaderMod, fab, primary(), 3);
+  if (inst) sheens.push(inst);
+}
+
 async function startGpuLayer() {
+  if (gpuLayerStarted) {
+    // Re-entry (e.g. reduced-motion flipped off after boot) — just re-attach.
+    void attachFab();
+    return;
+  }
   // No WebGPU → skip the ~2MB download entirely; CSS fallback carries the look.
   if (!('gpu' in navigator)) return;
+  // Reduced-motion → return BEFORE the dynamic import so these users never
+  // download the shaders chunk (~683KB gzip for a frozen frame).
+  if (prefersReduced()) return;
+  gpuLayerStarted = true;
   try {
     const mod = await import('shaders/js');
     if (!mod.isWebGPUSupported()) return;
+    if (reduceMotion) return;
+    shaderMod = mod;
     gpuOk = true;
     document.documentElement.classList.add('fx-gpu-on');
 
-    const attachAll = async () => {
-      if (!gpuOk || document.hidden) return;
-      const fab = document.getElementById('fab');
-      const plays = [...document.querySelectorAll<HTMLElement>('#grid .t-play')]
-        .slice(0, MAX_PLAY_SHEENS);
-      if (fab) {
-        const inst = await attachSheen(mod, fab, INK, 3);
-        if (inst) sheens.push(inst);
-      }
-      let seed = 11;
-      for (const p of plays) {
-        const inst = await attachSheen(mod, p, accentOf(p, INK), seed++);
-        if (inst) sheens.push(inst);
-      }
-    };
+    // No #grid observer: #fab is static, so there is no render storm to
+    // chase. Play-button sheens were deleted (9→1 contexts).
 
-    // Timer renders swap #grid wholesale — re-attach (debounced) after paints.
-    const grid = document.getElementById('grid');
-    if (grid) {
-      const obs = new MutationObserver(() => {
-        window.clearTimeout(moTimer);
-        moTimer = window.setTimeout(() => {
-          if (!gpuOk || reduceMotion || document.hidden) return;
-          teardownSheens();
-          void attachAll();
-        }, 250);
-      });
-      obs.observe(grid, { childList: true });
-    }
+    // Sheen bakes its colour — re-attach on primary change so the
+    // "+ new" button sheen tracks settings.
+    document.addEventListener(PRIMARY_EVENT, () => {
+      if (!gpuOk || reduceMotion || document.hidden) return;
+      teardownSheens();
+      void attachFab();
+    });
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
@@ -195,25 +215,27 @@ async function startGpuLayer() {
         for (const s of sheens) {
           try { s.resume(); } catch { /* noop */ }
         }
-        // Re-attach in case renders happened while hidden.
-        const gridNow = document.getElementById('grid');
-        if (gridNow && ![...document.querySelectorAll('#grid .t-play')].every(
-          (p) => p.querySelector(':scope > canvas.fx-gpu'),
-        )) {
+        // Re-attach in case the fab canvas was lost while hidden.
+        const fab = document.getElementById('fab');
+        if (fab && !fab.querySelector(':scope > canvas.fx-gpu')) {
           teardownSheens();
-          void attachAll();
+          void attachFab();
         }
       }
     });
 
     window.addEventListener('resize', () => {
-      document.querySelectorAll<HTMLElement>('#fab, #grid .t-play').forEach((host) => {
-        const c = host.querySelector(':scope > canvas.fx-gpu') as HTMLCanvasElement | null;
-        if (c) sizeCanvas(c, host);
-      });
+      if (document.hidden) return;
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        if (!gpuOk || reduceMotion || document.hidden) return;
+        const fab = document.getElementById('fab');
+        const c = fab?.querySelector(':scope > canvas.fx-gpu') as HTMLCanvasElement | null;
+        if (c && fab) sizeCanvas(c, fab);
+      }, 200);
     });
 
-    void attachAll();
+    void attachFab();
   } catch {
     gpuOk = false;
   }
@@ -226,5 +248,34 @@ export function initFx() {
   document.documentElement.classList.add('fx');
   document.addEventListener('pointermove', onPointerMove, { passive: true });
   document.addEventListener('pointerdown', onPointerDown, { passive: true });
+  document.addEventListener('focusin', onFocusIn);
+  // Pause/resume (and free/re-boot the single context) when the OS-level
+  // reduced-motion preference flips mid-session.
+  try {
+    mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    mq.addEventListener('change', (e) => {
+      reduceMotion = e.matches;
+      if (e.matches) {
+        // Freeze + free the context; CSS fallback carries the look.
+        for (const s of sheens) {
+          try { s.pause(); } catch { /* noop */ }
+        }
+        teardownSheens();
+      } else if (gpuLayerStarted && shaderMod) {
+        gpuOk = true;
+        void attachFab();
+      } else {
+        gpuLayerStarted = false;
+        void startGpuLayer();
+      }
+    });
+  } catch { /* matchMedia listener is best-effort */ }
   void startGpuLayer();
 }
+
+// NOTE for a11y agent: keyboard focus parity for the GPU sheen itself is
+// intentionally minimal — the sheen is aria-hidden decoration and the fab
+// keeps its native :focus-visible outline from CSS. The JS-side focusin hook
+// above only centres the existing --mx/--my card glow on keyboard focus. If
+// a :focus-within glow stronger than the outline is desired, that belongs in
+// global.css (this agent may only touch fx.ts / fluid.ts).

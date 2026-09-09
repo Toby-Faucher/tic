@@ -10,7 +10,8 @@
   --dur-slow: 380ms;
 }
 
-/* tic design tokens — cream paper, blue ink, serif, boxy, dashes. */
+/* tic design tokens — cream paper, ink primary (blue default, user-set via
+   settings → --color-ink override), serif, boxy, dashes. */
 @theme {
   --color-cream: #faf4e8;
   --color-ink: #1734d8;
@@ -45,7 +46,9 @@
 /* Native colour-picker inputs can't be styled with utilities
    (shadow-DOM swatches), so they live here. */
 #accentWheel,
-#baccentWheel {
+#baccentWheel,
+#primaryCustom-light,
+#primaryCustom-dark {
   width: 34px;
   height: 34px;
   padding: 0;
@@ -55,14 +58,22 @@
   opacity: 0.85;
 }
 #accentWheel::-webkit-color-swatch-wrapper,
-#baccentWheel::-webkit-color-swatch-wrapper { padding: 0; }
+#baccentWheel::-webkit-color-swatch-wrapper,
+#primaryCustom-light::-webkit-color-swatch-wrapper,
+#primaryCustom-dark::-webkit-color-swatch-wrapper { padding: 0; }
 #accentWheel::-webkit-color-swatch,
-#baccentWheel::-webkit-color-swatch { border: 2px dashed #1734d8; }
+#baccentWheel::-webkit-color-swatch,
+#primaryCustom-light::-webkit-color-swatch,
+#primaryCustom-dark::-webkit-color-swatch { border: 2px dashed var(--color-ink); }
 #accentWheel::-moz-color-swatch,
-#baccentWheel::-moz-color-swatch { border: 2px dashed #1734d8; }
+#baccentWheel::-moz-color-swatch,
+#primaryCustom-light::-moz-color-swatch,
+#primaryCustom-dark::-moz-color-swatch { border: 2px dashed var(--color-ink); }
 #accentWheel[data-sel="true"],
-#baccentWheel[data-sel="true"] {
-  outline: 2px solid #1734d8;
+#baccentWheel[data-sel="true"],
+#primaryCustom-light[data-sel="true"],
+#primaryCustom-dark[data-sel="true"] {
+  outline: 2px solid var(--color-ink);
   outline-offset: 3px;
   opacity: 1;
 }
@@ -145,11 +156,11 @@
 }
 .t-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px -12px rgb(23 52 216 / 0.35);
+  box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--color-ink) 35%, transparent);
 }
 .t-card[data-status="running"] {
   border-style: solid;
-  box-shadow: 0 8px 28px -12px rgb(23 52 216 / 0.45);
+  box-shadow: 0 8px 28px -12px color-mix(in srgb, var(--color-ink) 45%, transparent);
 }
 
 /* Tabs crossfade, buttons press with a spring. */
@@ -170,6 +181,8 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
   #fluid { opacity: 0.35; }
@@ -209,7 +222,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(130px circle at var(--mx, 50%) var(--my, 50%), rgb(23 52 216 / 0.08), transparent 70%);
+  background: radial-gradient(130px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--color-ink) 8%, transparent), transparent 70%);
   opacity: 0;
   transition: opacity var(--dur-base) ease-out;
 }
@@ -247,14 +260,12 @@ canvas.fx-gpu { display: none; }
   .fx-gpu-on canvas.fx-gpu { opacity: 0.14; }
 }
 
-/* ---- tic dark mode — NOC night-shift friendly (appended; light rules above untouched) ----
-   Strategy: --color-cream/--color-ink are the tokens Tailwind v4 utilities
-   resolve to (bg-cream, text-ink, border-ink, …), so remapping them flips the
-   whole paper aesthetic at once. Dashed borders stay dashed; only baked-in
-   light values (orange accents, swatch rings, card glow) get explicit nudges. */
+/* ---- tic dark mode — soft charcoal night shift, ink untouched ----
+   Only the paper flips (to grey, not black — easier on the eyes than pure
+   black); --color-ink stays exactly the user's hue in both modes. Amber
+   keeps urgent readable. */
 html[data-theme="dark"] {
-  --color-cream: #0e1430;
-  --color-ink: #b9c4ff;
+  --color-cream: #1e1e1e;
   color-scheme: dark;
 }
 /* Dim the shader layer so the canvas never glares at 3am. */
@@ -262,14 +273,14 @@ html[data-theme="dark"] {
   opacity: 0.32;
   background: var(--color-cream);
 }
-/* Card glow was a baked ink-blue; soften to periwinkle so it reads, not glares. */
+/* Primary glow reads well on black — keep it, slightly deeper. */
 [data-theme="dark"] .t-card:hover {
-  box-shadow: 0 8px 24px -12px rgb(185 196 255 / 0.25);
+  box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--color-ink) 55%, transparent);
 }
 [data-theme="dark"] .t-card[data-status="running"] {
-  box-shadow: 0 8px 28px -12px rgb(185 196 255 / 0.3);
+  box-shadow: 0 8px 28px -12px color-mix(in srgb, var(--color-ink) 65%, transparent);
 }
-/* Orange-700 accents go muddy on navy — lift urgent signals to warm amber. */
+/* Urgent signals stay warm amber so they pop on black. */
 [data-theme="dark"] .t-prio {
   color: #faf4e8;
 }
@@ -283,16 +294,102 @@ html[data-theme="dark"] {
 [data-theme="dark"] .t-nocbtn[data-urgent="true"] {
   border-color: #ff9d5c;
 }
-/* Native colour-picker rings were baked ink-blue; match the dark ink. */
-[data-theme="dark"] #accentWheel::-webkit-color-swatch,
-[data-theme="dark"] #baccentWheel::-webkit-color-swatch { border-color: #b9c4ff; }
-[data-theme="dark"] #accentWheel::-moz-color-swatch,
-[data-theme="dark"] #baccentWheel::-moz-color-swatch { border-color: #b9c4ff; }
-[data-theme="dark"] #accentWheel[data-sel="true"],
-[data-theme="dark"] #baccentWheel[data-sel="true"] {
-  outline-color: #b9c4ff;
-}
 [data-theme="dark"] ::selection {
-  background: #b9c4ff;
-  color: #0e1430;
+  background: var(--color-ink);
+  color: #faf4e8;
+}
+
+/* ---- tic a11y (WCAG 2.2 AA) ----
+   Unlayered so these floors beat the layered utilities/components above. */
+/* Visible keyboard focus everywhere … */
+:focus-visible {
+  outline: 3px solid var(--color-ink);
+  outline-offset: 2px;
+}
+/* … with an inverse double ring on filled controls (cream edge + ink halo
+   reads on both the ink fill and the cream paper). */
+.t-primary:focus-visible,
+.t-play:focus-visible,
+.t-tab[data-active="true"]:focus-visible,
+.t-chip[data-active="true"]:focus-visible,
+.t-rsbtn[data-sel="true"]:focus-visible,
+.t-boxring:focus-visible {
+  outline: 3px solid var(--color-cream);
+  box-shadow: 0 0 0 6px var(--color-ink);
+}
+/* Overlay kill-switch: hidden always wins, unless explicitly open — this
+   keeps the sheets working with owner JS that only toggles data-open. */
+.t-overlay[hidden] { display: none; }
+.t-overlay[data-open="true"] { display: flex; }
+/* Secondary-text floor: >=85% ink on paper in both themes (>=4.5:1 at the
+   default primaries; user picks are contrast-gated in settings.ts).
+   :not() guards keep selected fills (ink bg + cream text) intact. */
+.t-chip:not([data-active="true"]),
+.t-tab:not([data-active="true"]),
+.t-iconbtn,
+.t-meta,
+.t-sub,
+.t-emptyp,
+.t-boxdesc {
+  color: color-mix(in srgb, var(--color-ink) 85%, var(--color-cream));
+}
+.t-rsbtn,
+.t-prevbtn,
+.t-preset,
+.t-ghost,
+.t-hint,
+.t-flabel,
+.t-durlab,
+.t-rodesc,
+.t-linked,
+.t-ticket {
+  opacity: 0.85;
+}
+.t-flabel span { opacity: 1; }
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--color-ink) 85%, var(--color-cream));
+  opacity: 1;
+}
+/* Pointer targets >=24px (44 preferred where layout allows). */
+.t-prevbtn,
+.t-preset {
+  min-height: 24px;
+  min-width: 24px;
+}
+.t-prevbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+footer button {
+  min-height: 24px;
+  min-width: 24px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+/* Fieldset/legend group resets (cross-browser legend defaults). */
+fieldset.t-field {
+  border: 0;
+  padding: 0;
+  margin-left: 0;
+  margin-right: 0;
+  min-width: 0;
+}
+legend.t-flabel { padding: 0; }
+/* Keyboard users get the same card glow + sheen highlight as hover. */
+.t-card:focus-within {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--color-ink) 35%, transparent);
+}
+.t-card[data-status="running"]:focus-within {
+  border-style: solid;
+  box-shadow: 0 8px 28px -12px color-mix(in srgb, var(--color-ink) 45%, transparent);
+}
+.fx .t-card:focus-within::before { opacity: 1; }
+html[data-theme="dark"] .t-card:focus-within {
+  box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--color-ink) 55%, transparent);
+}
+html[data-theme="dark"] .t-card[data-status="running"]:focus-within {
+  box-shadow: 0 8px 28px -12px color-mix(in srgb, var(--color-ink) 65%, transparent);
 }

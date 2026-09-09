@@ -10,20 +10,27 @@ import '../styles/global.css';
     <title>tic — NOC follow-up timers</title>
     <meta name="description" content="tic — quiet local-only timers + tasks for NOC follow-ups." />
     <script is:inline>
-      try { var t = localStorage.getItem('tic.theme'); if (t !== 'dark' && t !== 'light') { t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } document.documentElement.dataset.theme = t; } catch (e) {}
+      try {
+        var t = localStorage.getItem('tic.theme'); if (t !== 'dark' && t !== 'light') { t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } document.documentElement.dataset.theme = t;
+        var k = t === 'dark' ? 'tic.primary.dark' : 'tic.primary';
+        var d = t === 'dark' ? '#f2ede1' : '#444444';
+        var p = localStorage.getItem(k); if (!/^#[0-9a-f]{6}$/i.test(p)) p = d;
+        document.documentElement.style.setProperty('--color-ink', p);
+      } catch (e) {}
     </script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23faf4e8' stroke='%231734d8' stroke-width='6' stroke-dasharray='10 7'/><text x='50' y='70' font-size='56' text-anchor='middle' fill='%231734d8' font-family='Georgia' font-style='italic'>t</text></svg>" />
   </head>
   <body>
-    <canvas id="fluid" aria-hidden="true" class="fixed inset-0 -z-10 h-full w-full opacity-60"></canvas>
-    <div class="relative z-10 mx-auto max-w-[620px] px-5 pt-10 pb-20">
+    <canvas id="fluid" aria-hidden="true" class="fixed inset-0 -z-10 h-full w-full opacity-80"></canvas>
+    <main class="relative z-10 mx-auto max-w-[620px] px-5 pt-10 pb-20">
       <header class="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 class="m-0 text-[44px] leading-none font-normal tracking-tight"><em>tic</em></h1>
-          <p class="mt-2 text-[15px] text-ink/70 italic">quiet follow-ups for NOC shifts.</p>
+          <p class="mt-2 text-[15px] text-ink/85 italic">quiet follow-ups for NOC shifts.</p>
         </div>
         <div class="flex items-center gap-3">
-          <span id="count" class="text-sm text-ink/70 italic">—</span>
+          <span id="count" role="status" aria-live="polite" aria-atomic="true" class="text-sm text-ink/85 italic">—</span>
+          <button id="settingsBtn" type="button" aria-label="Open settings" title="Settings" class="cursor-pointer border-2 border-dashed border-ink bg-transparent px-3 py-2.5 font-serif text-[15px] text-ink italic hover:bg-ink hover:text-cream active:translate-y-px">⚙</button>
           <button id="themeToggle" type="button" aria-pressed="false" aria-label="Switch to dark mode" title="Switch to dark mode" class="cursor-pointer border-2 border-dashed border-ink bg-transparent px-3 py-2.5 font-serif text-[15px] text-ink italic hover:bg-ink hover:text-cream active:translate-y-px">☾ dark</button>
           <button id="fab" type="button" class="cursor-pointer border-2 border-dashed border-ink bg-transparent px-[18px] py-2.5 font-serif text-[15px] text-ink italic hover:bg-ink hover:text-cream active:translate-y-px">+ new timer</button>
         </div>
@@ -31,36 +38,48 @@ import '../styles/global.css';
 
       <hr class="my-5 border-0 border-t-2 border-dashed border-ink/45" />
 
-      <nav id="tabs" aria-label="Views" class="mb-5 flex border-2 border-dashed border-ink/45">
-        <button class="tab t-tab" data-view="timers" data-active="true" type="button">timers</button>
-        <button class="tab t-tab border-l-2 border-dashed border-ink/45" data-view="boxes" data-active="false" type="button">boxes</button>
+      <section id="goalBar" aria-label="Shift goal" class="mb-5 border-2 border-dashed border-ink/45 p-3">
+        <div class="mb-1 flex items-baseline justify-between gap-2">
+          <label for="goalInput" class="text-[13px] italic opacity-85">shift goal · <span id="goalDate"></span></label>
+          <button id="goalClear" type="button" class="t-prevbtn">clear</button>
+        </div>
+        <textarea id="goalInput" rows="2" placeholder="today's shift goal…" aria-label="Shift goal" class="w-full resize-none overflow-hidden border-0 bg-transparent font-serif text-[15px] text-ink italic outline-none placeholder:text-ink/85"></textarea>
+      </section>
+
+      <nav id="tabs" role="tablist" aria-label="Views" class="mb-5 flex border-2 border-dashed border-ink/45">
+        <button id="tab-timers" role="tab" aria-selected="true" aria-controls="timerView" tabindex="0" class="tab t-tab" data-view="timers" data-active="true" type="button">timers</button>
+        <button id="tab-boxes" role="tab" aria-selected="false" aria-controls="boxView" tabindex="-1" class="tab t-tab border-l-2 border-dashed border-ink/45" data-view="boxes" data-active="false" type="button">boxes</button>
       </nav>
 
-      <div id="nocBar" aria-label="NOC quick follow-ups" class="mb-5 border-2 border-dashed border-ink/45 p-3"></div>
+      <div id="nocBar" role="group" aria-label="NOC quick follow-ups" class="mb-5 border-2 border-dashed border-ink/45 p-3"></div>
 
-      <section id="timerView">
+      <section id="timerView" role="tabpanel" aria-labelledby="tab-timers" aria-label="Timers">
         <nav id="filters" aria-label="Filter by tag" class="mb-5 flex flex-wrap gap-2 empty:hidden"></nav>
 
-        <main id="grid" aria-live="polite" class="flex flex-col gap-4"></main>
+        <div id="grid" class="flex flex-col gap-4"></div>
+        <div id="gridStatus" role="status" aria-live="polite" class="sr-only"></div>
       </section>
 
-      <section id="boxView" hidden>
+      <section id="boxView" role="tabpanel" aria-labelledby="tab-boxes" aria-label="Boxes" hidden>
         <nav id="boxFilters" aria-label="Filter boxes by tag" class="mb-5 flex flex-wrap gap-2 empty:hidden"></nav>
 
-        <div id="boxGrid" aria-live="polite" class="flex flex-col gap-4"></div>
+        <div id="boxGrid" class="flex flex-col gap-4"></div>
       </section>
+
+      <div id="alarmLive" role="alert" class="sr-only"></div>
 
       <hr class="my-5 border-0 border-t-2 border-dashed border-ink/45" />
 
-      <footer class="flex flex-wrap items-center justify-between gap-3 text-[13px] text-ink/70 italic">
+      <footer class="flex flex-wrap items-center justify-between gap-3 text-[13px] text-ink/85 italic">
         <span>tic · local-only</span>
-        <span class="opacity-80">n new · 1/2 tabs · space start</span>
-        <span><button id="handoverBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic font-bold text-ink hover:underline">handover copy</button> · <button id="exportBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic text-ink/70 hover:text-ink hover:underline">export</button> · <button id="importBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic text-ink/70 hover:text-ink hover:underline">import</button></span>
+        <span class="opacity-85">n new · 1/2 tabs · space start</span>
+        <span><button id="handoverBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic font-bold text-ink hover:underline">handover copy</button> · <button id="exportBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic text-ink/85 hover:text-ink hover:underline">export</button> · <button id="importBtn" type="button" class="cursor-pointer border-0 bg-transparent p-0 font-serif text-[13px] italic text-ink/85 hover:text-ink hover:underline">import</button></span>
       </footer>
+      <div id="actionStatus" role="status" aria-live="polite" class="sr-only"></div>
       <input type="file" id="importFile" accept="application/json,.json" class="hidden" />
-    </div>
+    </main>
 
-    <div class="group t-overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="group t-overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" data-open="false" hidden inert aria-hidden="true">
       <div class="t-sheetbox">
         <h2 id="sheetTitle" class="t-sheeth">New timer</h2>
         <p class="t-hint">Name it, time it, style it.</p>
@@ -75,18 +94,18 @@ import '../styles/global.css';
             <label for="ticket" class="t-flabel">Ticket #</label>
             <input class="t-textin" id="ticket" maxlength="40" placeholder="INC1234" autocomplete="off" spellcheck="false" />
           </div>
-          <div class="t-field">
-            <label class="t-flabel">Priority</label>
-            <div class="grid grid-cols-2 gap-2" id="prioRow"></div>
-          </div>
+          <fieldset class="t-field">
+            <legend class="t-flabel" id="prioLegend">Priority</legend>
+            <div class="grid grid-cols-2 gap-2" id="prioRow" role="group" aria-labelledby="prioLegend"></div>
+          </fieldset>
         </div>
 
-        <div class="t-field">
-          <label class="t-flabel">Duration</label>
-          <div class="grid grid-cols-3 gap-2.5">
-            <div class="text-center"><input class="t-textin" id="h" type="number" min="0" max="99" value="0" /><span class="t-durlab">Hrs</span></div>
-            <div class="text-center"><input class="t-textin" id="m" type="number" min="0" max="599" value="5" /><span class="t-durlab">Min</span></div>
-            <div class="text-center"><input class="t-textin" id="s" type="number" min="0" max="59" value="0" /><span class="t-durlab">Sec</span></div>
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="durLegend">Duration</legend>
+          <div class="grid grid-cols-3 gap-2.5" role="group" aria-labelledby="durLegend">
+            <div class="text-center"><input class="t-textin" id="h" type="number" min="0" max="99" value="0" /><label for="h" class="t-durlab">Hrs</label></div>
+            <div class="text-center"><input class="t-textin" id="m" type="number" min="0" max="599" value="5" /><label for="m" class="t-durlab">Min</label></div>
+            <div class="text-center"><input class="t-textin" id="s" type="number" min="0" max="59" value="0" /><label for="s" class="t-durlab">Sec</label></div>
           </div>
           <div class="mt-2.5 flex flex-wrap gap-2" id="presets">
             <button type="button" data-sec="60" class="t-preset">1m</button>
@@ -96,22 +115,22 @@ import '../styles/global.css';
             <button type="button" data-sec="1500" class="t-preset">25m</button>
             <button type="button" data-sec="3000" class="t-preset">50m</button>
           </div>
-        </div>
+        </fieldset>
 
-        <div class="t-field">
-          <label class="t-flabel">Style · colour</label>
-          <div class="flex flex-wrap gap-2.5" id="swatches"></div>
-        </div>
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="swLegend">Style · colour</legend>
+          <div class="flex flex-wrap gap-2.5" id="swatches" role="group" aria-labelledby="swLegend"></div>
+        </fieldset>
 
-        <div class="t-field">
-          <label class="t-flabel">Style · ring weight</label>
-          <div class="grid grid-cols-3 gap-2" id="ringstyle"></div>
-        </div>
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="rwLegend">Style · ring weight</legend>
+          <div class="grid grid-cols-3 gap-2" id="ringstyle" role="group" aria-labelledby="rwLegend"></div>
+        </fieldset>
 
-        <div class="t-field">
-          <label class="t-flabel">Ring sound</label>
-          <div class="flex flex-col gap-2" id="rings"></div>
-        </div>
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="ringLegend">Ring sound</legend>
+          <div class="flex flex-col gap-2" id="rings" role="radiogroup" aria-labelledby="ringLegend"></div>
+        </fieldset>
 
         <div class="t-field">
           <label class="t-flabel" for="next">Next up <span class="opacity-70">— auto-starts when this finishes</span></label>
@@ -130,7 +149,7 @@ import '../styles/global.css';
       </div>
     </div>
 
-    <div class="group t-overlay" id="boxOverlay" role="dialog" aria-modal="true" aria-labelledby="boxSheetTitle">
+    <div class="group t-overlay" id="boxOverlay" role="dialog" aria-modal="true" aria-labelledby="boxSheetTitle" data-open="false" hidden inert aria-hidden="true">
       <div class="t-sheetbox">
         <h2 id="boxSheetTitle" class="t-sheeth">New box</h2>
         <p class="t-hint">A little box for a thought, a task, a list.</p>
@@ -145,10 +164,10 @@ import '../styles/global.css';
             <label for="bticket" class="t-flabel">Ticket #</label>
             <input class="t-textin" id="bticket" maxlength="40" placeholder="INC1234" autocomplete="off" spellcheck="false" />
           </div>
-          <div class="t-field">
-            <label class="t-flabel">Priority</label>
-            <div class="grid grid-cols-2 gap-2" id="bprioRow"></div>
-          </div>
+          <fieldset class="t-field">
+            <legend class="t-flabel" id="bprioLegend">Priority</legend>
+            <div class="grid grid-cols-2 gap-2" id="bprioRow" role="group" aria-labelledby="bprioLegend"></div>
+          </fieldset>
         </div>
 
         <div class="t-field">
@@ -156,10 +175,10 @@ import '../styles/global.css';
           <textarea class="t-textin min-h-[96px] resize-y leading-normal" id="bbody" rows="4" placeholder="whatever's in it…"></textarea>
         </div>
 
-        <div class="t-field">
-          <label class="t-flabel">Style · colour</label>
-          <div class="flex flex-wrap gap-2.5" id="bswatches"></div>
-        </div>
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="bswLegend">Style · colour</legend>
+          <div class="flex flex-wrap gap-2.5" id="bswatches" role="group" aria-labelledby="bswLegend"></div>
+        </fieldset>
 
         <div class="t-field">
           <label for="btags" class="t-flabel">Tags <span class="opacity-70">— comma separated</span></label>
@@ -173,13 +192,349 @@ import '../styles/global.css';
       </div>
     </div>
 
+    <div class="group t-overlay" id="settingsOverlay" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" data-open="false" hidden inert aria-hidden="true">
+      <div class="t-sheetbox">
+        <h2 id="settingsTitle" class="t-sheeth">Settings</h2>
+        <p class="t-hint">Make tic yours. Everything stays local.</p>
+
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="plLegend">Light mode · <span id="primaryValue-light">#444444</span></legend>
+          <div class="flex flex-wrap items-center gap-2.5" id="primarySwatches-light" role="group" aria-labelledby="plLegend"></div>
+          <div class="mt-3 flex items-center gap-3">
+            <input type="color" id="primaryCustom-light" value="#444444" title="Custom light-mode colour" aria-label="Custom light-mode primary colour" />
+            <label for="primaryCustom-light" class="text-sm italic opacity-85">Custom…</label>
+          </div>
+        </fieldset>
+
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="pdLegend">Dark mode · <span id="primaryValue-dark">#f2ede1</span></legend>
+          <div class="flex flex-wrap items-center gap-2.5" id="primarySwatches-dark" role="group" aria-labelledby="pdLegend"></div>
+          <div class="mt-3 flex items-center gap-3">
+            <input type="color" id="primaryCustom-dark" value="#f2ede1" title="Custom dark-mode colour" aria-label="Custom dark-mode primary colour" />
+            <label for="primaryCustom-dark" class="text-sm italic opacity-85">Custom…</label>
+            <button type="button" id="primaryReset" class="t-prevbtn">reset both</button>
+          </div>
+        </fieldset>
+
+        <fieldset class="t-field">
+          <legend class="t-flabel" id="tickLegend">Box tick sound</legend>
+          <div class="flex flex-col gap-2" id="tickSounds" role="radiogroup" aria-labelledby="tickLegend"></div>
+        </fieldset>
+
+        <div class="t-field">
+          <div class="t-flabel" id="previewLabel">Preview</div>
+          <div class="border-2 border-dashed border-ink p-3" role="img" aria-label="Preview of the primary colour">
+            <div class="bg-ink px-3 py-2 text-center font-serif text-base text-cream italic">tic · quiet follow-ups</div>
+            <div class="mt-2 flex gap-2">
+              <span class="t-tag">#callback</span>
+              <span class="t-tag">#check</span>
+            </div>
+          </div>
+          <p id="primaryNote" role="alert" class="mt-2 min-h-[1.25em] text-sm italic"></p>
+        </div>
+
+        <div class="mt-1.5 flex gap-2.5">
+          <button class="t-primary" id="settingsClose" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <script is:inline>
+      /* tic a11y bridge (inline, framework-free). Runs before the bundled
+         module scripts and stays compatible with them:
+         - .t-overlay[data-open] observer: syncs hidden/inert/aria-hidden so
+           a closed sheet is unfocusable and invisible to AT. Owners
+           (app.ts / boxes.ts / settings.ts) only toggle dataset.open.
+         - #tabs: roving tabindex + Arrow/Home/End (automatic activation via
+           click, so boxes.ts show() stays the state owner); aria-selected
+           mirrors data-active.
+         - #rings / #tickSounds: upgrades JS-rendered option divs to
+           role=radio (roving tabindex, aria-checked from data-sel,
+           Enter/Space/arrows). Owner-managed rows (already role=radio, e.g.
+           settings.ts ticks) are only synced. Preview buttons keep working
+           via stopPropagation and are skipped by row keys.
+         - buttons with data-sel / filter chips mirror aria-pressed.
+         - #nocBar: gives #nocTicket an accessible name, appends sr-only
+           "(urgent)" to urgent quick-add buttons.
+         - cards: .t-prio badges get role=img + aria-label + sr-only text;
+           SVGs/.t-dot get aria-hidden; [data-time] gets role=timer with an
+           aria-label refreshed at most once per minute.
+         - live regions: #gridStatus auto-summarises timers ("3 timers, 1
+           running"); card flips to done announce via #alarmLive (debounced
+           against the window.__ticAnnounceAlarm / 'tic:alarm' hook);
+           #handoverBtn/#importBtn keep stable labels — text swaps are
+           mirrored into #actionStatus and reverted. */
+      (function () {
+        'use strict';
+        function $(s, r) { return (r || document).querySelector(s); }
+        function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+
+        /* ---- overlay data-open bridge ---- */
+        function syncOverlay(ov) {
+          if (!ov || !ov.classList || !ov.classList.contains('t-overlay')) return;
+          if (ov.dataset.open === 'true') {
+            ov.removeAttribute('hidden');
+            ov.removeAttribute('inert');
+            try { ov.inert = false; } catch (e) {}
+            ov.setAttribute('aria-hidden', 'false');
+          } else {
+            ov.dataset.open = 'false';
+            ov.setAttribute('hidden', '');
+            ov.setAttribute('inert', '');
+            try { ov.inert = true; } catch (e) {}
+            ov.setAttribute('aria-hidden', 'true');
+          }
+        }
+        $$('.t-overlay').forEach(syncOverlay);
+        new MutationObserver(function (muts) {
+          muts.forEach(function (m) { if (m.attributeName === 'data-open') syncOverlay(m.target); });
+        }).observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['data-open'] });
+
+        /* ---- tabs: roving tabindex + arrows, aria-selected mirror ---- */
+        function syncTabs() {
+          $$('#tabs .tab').forEach(function (t) {
+            var active = t.dataset.active === 'true';
+            t.setAttribute('aria-selected', String(active));
+            t.tabIndex = active ? 0 : -1;
+          });
+        }
+        syncTabs();
+        var tabsNav = $('#tabs');
+        if (tabsNav) {
+          new MutationObserver(syncTabs).observe(tabsNav, { attributes: true, subtree: true, attributeFilter: ['data-active'] });
+          tabsNav.addEventListener('keydown', function (e) {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) === -1) return;
+            e.preventDefault();
+            var tabs = $$('#tabs .tab');
+            var i = tabs.indexOf(document.activeElement);
+            if (i === -1) i = 0;
+            var n = i;
+            if (e.key === 'ArrowRight') n = (i + 1) % tabs.length;
+            else if (e.key === 'ArrowLeft') n = (i - 1 + tabs.length) % tabs.length;
+            else if (e.key === 'Home') n = 0;
+            else n = tabs.length - 1;
+            tabs[n].focus();
+            tabs[n].click();
+          });
+        }
+
+        /* ---- aria-pressed mirrors for JS-rendered toggle buttons ---- */
+        function syncPressed(el) {
+          if (!el || el.tagName !== 'BUTTON' || (el.classList && el.classList.contains('tab'))) return;
+          if (el.hasAttribute('data-sel')) el.setAttribute('aria-pressed', String(el.dataset.sel === 'true'));
+          else if (el.classList.contains('t-chip') && el.hasAttribute('data-active')) el.setAttribute('aria-pressed', String(el.dataset.active === 'true'));
+        }
+        $$('button[data-sel], #filters .t-chip, #boxFilters .t-chip').forEach(syncPressed);
+        new MutationObserver(function (muts) {
+          muts.forEach(function (m) { syncPressed(m.target); });
+        }).observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['data-sel', 'data-active'] });
+        /* Filter chips are re-created with data-active pre-set (no attribute
+           mutation fires), so sync them on insertion too. */
+        ['#filters', '#boxFilters'].forEach(function (sel) {
+          var w = $(sel);
+          if (!w) return;
+          $$('.t-chip', w).forEach(syncPressed);
+          new MutationObserver(function () { $$('.t-chip', w).forEach(syncPressed); }).observe(w, { childList: true });
+        });
+
+        /* ---- radiogroup option rows (#rings, #tickSounds) ---- */
+        function syncRadio(row) {
+          var sel = row.dataset.sel === 'true';
+          row.setAttribute('aria-checked', String(sel));
+          row.tabIndex = sel ? 0 : -1;
+          var group = row.parentElement;
+          if (group && !group.querySelector('[tabindex="0"]')) row.tabIndex = 0;
+        }
+        function upgradeRadio(row, group) {
+          if (row.__ticRadio || row.getAttribute('role') === 'radio') { syncRadio(row); return; }
+          row.__ticRadio = true;
+          row.setAttribute('role', 'radio');
+          var prev = row.querySelector('.preview');
+          if (prev) prev.addEventListener('click', function (e) { e.stopPropagation(); });
+          row.addEventListener('keydown', function (e) {
+            if (e.target && e.target.closest && e.target.closest('.preview')) return;
+            var items = $$('[role="radio"]', group);
+            var i = items.indexOf(row);
+            var n = null;
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); return; }
+            else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') n = items[(i + 1) % items.length];
+            else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') n = items[(i - 1 + items.length) % items.length];
+            else if (e.key === 'Home') n = items[0];
+            else if (e.key === 'End') n = items[items.length - 1];
+            else return;
+            e.preventDefault();
+            if (n) { n.focus(); n.click(); }
+          });
+          syncRadio(row);
+        }
+        function wireRadioGroup(group) {
+          if (!group || group.__ticWired) return;
+          group.__ticWired = true;
+          if (!group.hasAttribute('role')) group.setAttribute('role', 'radiogroup');
+          $$('.ring-opt, .tick-opt, [role="radio"]', group).forEach(function (r) { upgradeRadio(r, group); });
+          new MutationObserver(function (muts) {
+            muts.forEach(function (m) {
+              if (m.type === 'childList') {
+                m.addedNodes.forEach(function (node) {
+                  if (!node || node.nodeType !== 1) return;
+                  if (node.matches('.ring-opt, .tick-opt, [role="radio"]')) upgradeRadio(node, group);
+                });
+              } else if (m.target && m.target.matches && m.target.matches('.ring-opt, .tick-opt, [role="radio"]')) {
+                syncRadio(m.target);
+              }
+            });
+          }).observe(group, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-sel'] });
+        }
+        wireRadioGroup($('#rings'));
+        wireRadioGroup($('#tickSounds'));
+
+        /* ---- NOC bar: input name + urgent text cue ---- */
+        function upgradeNoc() {
+          var bar = $('#nocBar');
+          if (!bar) return;
+          var input = $('#nocTicket');
+          if (input && !input.getAttribute('aria-label') && !document.querySelector('label[for="nocTicket"]')) {
+            input.setAttribute('aria-label', 'Ticket number for quick follow-up');
+          }
+          $$('.t-nocbtn', bar).forEach(function (b) {
+            if (b.dataset.urgent === 'true' && !b.querySelector('.sr-only')) {
+              var s = document.createElement('span');
+              s.className = 'sr-only';
+              s.textContent = ' (urgent)';
+              b.appendChild(s);
+            }
+          });
+        }
+        upgradeNoc();
+        var nocBar = $('#nocBar');
+        if (nocBar) new MutationObserver(upgradeNoc).observe(nocBar, { childList: true, subtree: true });
+
+        /* ---- cards: badges, decorative nodes, role=timer ---- */
+        function wordsFor(txt) {
+          var parts = txt.split(':').map(function (x) { return parseInt(x, 10); });
+          if (parts.some(isNaN)) return txt + ' remaining';
+          var h = 0, m = 0, s = 0;
+          if (parts.length === 3) { h = parts[0]; m = parts[1]; s = parts[2]; }
+          else if (parts.length === 2) { m = parts[0]; s = parts[1]; }
+          else { s = parts[0]; }
+          var out = [];
+          if (h) out.push(h + (h === 1 ? ' hour' : ' hours'));
+          if (m) out.push(m + (m === 1 ? ' minute' : ' minutes'));
+          if (s || !out.length) out.push(s + (s === 1 ? ' second' : ' seconds'));
+          return out.join(' ') + ' remaining';
+        }
+        function upgradeCards(root) {
+          $$('.t-prio', root).forEach(function (p) {
+            if (!p.hasAttribute('aria-label')) {
+              p.setAttribute('role', 'img');
+              p.setAttribute('aria-label', 'urgent priority');
+            }
+            if (!p.querySelector('.sr-only')) {
+              var s = document.createElement('span');
+              s.className = 'sr-only';
+              s.textContent = 'urgent';
+              p.appendChild(s);
+            }
+          });
+          $$('svg', root).forEach(function (svg) { svg.setAttribute('aria-hidden', 'true'); });
+          $$('.t-dot', root).forEach(function (d) { d.setAttribute('aria-hidden', 'true'); });
+          $$('[data-time]', root).forEach(function (t) {
+            if (!t.hasAttribute('role')) t.setAttribute('role', 'timer');
+          });
+        }
+        ['#grid', '#boxGrid'].forEach(function (sel) {
+          var g = $(sel);
+          if (!g) return;
+          upgradeCards(g);
+          new MutationObserver(function () { upgradeCards(g); }).observe(g, { childList: true, subtree: true });
+        });
+        var timerLabelState = new WeakMap();
+        window.setInterval(function () {
+          var now = Date.now();
+          $$('#grid [data-time], #boxGrid [data-time]').forEach(function (t) {
+            var txt = (t.textContent || '').trim();
+            var prev = timerLabelState.get(t);
+            if (prev && prev.text === txt) return;
+            if (prev && now - prev.at < 60000) return;
+            t.setAttribute('aria-label', wordsFor(txt));
+            timerLabelState.set(t, { text: txt, at: now });
+          });
+        }, 5000);
+
+        /* ---- live regions: grid summary, alarm, action feedback ---- */
+        function updateGridStatus() {
+          var grid = $('#grid'), status = $('#gridStatus');
+          if (!grid || !status) return;
+          var cards = $$('article', grid);
+          var running = cards.filter(function (c) { return c.dataset.status === 'running'; }).length;
+          var text = cards.length === 0 ? 'No timers'
+            : cards.length + (cards.length === 1 ? ' timer' : ' timers') + ', ' + running + ' running';
+          if (status.textContent !== text) status.textContent = text;
+        }
+        window.__ticGridStatus = function (text) {
+          var s = $('#gridStatus');
+          if (s && s.textContent !== String(text)) s.textContent = String(text);
+        };
+        updateGridStatus();
+        var gridRoot = $('#grid');
+        if (gridRoot) new MutationObserver(updateGridStatus).observe(gridRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-status'] });
+
+        var lastAlarm = { text: '', at: 0 };
+        function announceAlarm(text) {
+          text = String(text);
+          var now = Date.now();
+          if (text === lastAlarm.text && now - lastAlarm.at < 3000) return;
+          lastAlarm = { text: text, at: now };
+          var live = $('#alarmLive');
+          if (!live) return;
+          live.textContent = '';
+          window.setTimeout(function () { live.textContent = text; }, 30);
+        }
+        window.__ticAnnounceAlarm = announceAlarm;
+        window.__ticAlarm = announceAlarm;
+        document.addEventListener('tic:alarm', function (e) { if (e && e.detail) announceAlarm(e.detail); });
+        if (gridRoot) {
+          new MutationObserver(function (muts) {
+            muts.forEach(function (m) {
+              if (m.attributeName === 'data-status' && m.target.dataset.status === 'done' && m.oldValue !== 'done') {
+                var nameEl = m.target.querySelector('.t-name');
+                announceAlarm('Time is up: ' + (nameEl ? nameEl.textContent.trim().slice(0, 60) : 'timer'));
+              }
+            });
+          }).observe(gridRoot, { attributes: true, subtree: true, attributeFilter: ['data-status'], attributeOldValue: true });
+        }
+
+        window.__ticAnnounceAction = function (msg) {
+          var live = $('#actionStatus');
+          if (live) live.textContent = String(msg);
+        };
+        function guardActionBtn(id) {
+          var btn = document.getElementById(id);
+          if (!btn || btn.__ticGuarded) return;
+          btn.__ticGuarded = true;
+          var orig = btn.textContent;
+          new MutationObserver(function () {
+            if (btn.textContent !== orig) {
+              window.__ticAnnounceAction(btn.textContent);
+              btn.textContent = orig;
+            }
+          }).observe(btn, { childList: true, characterData: true, subtree: true });
+        }
+        guardActionBtn('handoverBtn');
+        guardActionBtn('importBtn');
+      })();
+    </script>
     <script>
       import { initTheme } from '../scripts/theme.ts';
+      import { initSettings } from '../scripts/settings.ts';
+      import { initGoal } from '../scripts/goal.ts';
       import { init } from '../scripts/app.ts';
       import { initBoxes } from '../scripts/boxes.ts';
       import { initFluid } from '../scripts/fluid.ts';
       import { initFx } from '../scripts/fx.ts';
       initTheme();
+      initSettings();
+      initGoal();
       init();
       initBoxes();
       initFluid();
